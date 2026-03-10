@@ -1,0 +1,13 @@
+
+==================================================
+       SMC MULTI-TOKEN BACKTEST GLOBAL REPORT
+==================================================
+Symbols:          BTC/USDT, ETH/USDT, SOL/USDT, BNB/USDT
+Total PnL:        -240.90 USDT
+Global Win Rate:  30.77%
+Profit Factor:    0.53
+Total Trades:     13
+Long Trades:      5
+Short Trades:     8
+Final Net Equity: 39759.10 USDT
+==================================================
