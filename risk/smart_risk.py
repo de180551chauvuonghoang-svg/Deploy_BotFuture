@@ -26,22 +26,27 @@ def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score):
 
     sl_dist = abs(entry - sl)
 
-    # 2. Position Sizing
-    risk_pct = 0.005 # Default 0.5%
-    if score >= 8.0: risk_pct = 0.015
-    elif score >= 7.0: risk_pct = 0.010
+    # 2. Position Sizing (Aggressive Compounding for Premium Setups)
+    risk_pct = 0.005 # Base 0.5%
+    if score >= 9.5: risk_pct = 0.030   # 3% Alpha Setup
+    elif score >= 9.0: risk_pct = 0.025 # 2.5%
+    elif score >= 8.5: risk_pct = 0.020 # 2.0%
+    elif score >= 7.5: risk_pct = 0.015 # 1.5%
+    elif score >= 6.5: risk_pct = 0.010 # 1.0%
     
     risk_amount = account_balance * risk_pct
     position_size = risk_amount / sl_dist if sl_dist > 0 else 0
 
-    # 3. Take Profit (Multi-level)
-    tp1 = entry + (sl_dist * 1.5) if side == "LONG" else entry - (sl_dist * 1.5)
-    tp2 = entry + (sl_dist * 2.5) if side == "LONG" else entry - (sl_dist * 2.5)
+    # 3. Take Profit (Extreme RR: 1:2, 1:4, 1:6)
+    tp1 = entry + (sl_dist * 2.0) if side == "LONG" else entry - (sl_dist * 2.0)
+    tp2 = entry + (sl_dist * 4.0) if side == "LONG" else entry - (sl_dist * 4.0)
+    tp3 = entry + (sl_dist * 6.0) if side == "LONG" else entry - (sl_dist * 6.0)
     
     return {
         "sl": sl,
         "tp1": tp1,
         "tp2": tp2,
+        "tp3": tp3, # Added TP3
         "size": position_size,
         "risk_pct": risk_pct
     }

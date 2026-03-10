@@ -39,22 +39,27 @@ def detect_structure(df: pd.DataFrame, lookback: int = 100) -> dict:
     if len(sh_list) < 2 or len(sl_list) < 2:
         return {"bias": "NONE"}
 
-    # BULLISH: HH + HL + Above EMA200
-    is_bullish = (sh_list[-1] > sh_list[-2] and 
-                  sl_list[-1] > sl_list[-2] and 
-                  curr_price > ema200)
-                  
-    # BEARISH: LH + LL + Below EMA200
-    is_bearish = (sh_list[-1] < sh_list[-2] and 
-                   sl_list[-1] < sl_list[-2] and 
-                   curr_price < ema200)
-                   
+    last_sh = sh_list[-1]
+    last_sl = sl_list[-1]
+    prev_sh = sh_list[-2]
+    prev_sl = sl_list[-2]
+
     bias = "NONE"
-    if is_bullish: bias = "LONG"
-    elif is_bearish: bias = "SHORT"
+    
+    # BULLISH BOS: High broken
+    if curr_price > last_sh:
+        bias = "LONG"
+    # BEARISH BOS: Low broken
+    elif curr_price < last_sl:
+        bias = "SHORT"
+    # Continuation bias
+    elif curr_price > ema200 and last_sh > prev_sh:
+        bias = "LONG"
+    elif curr_price < ema200 and last_sl < prev_sl:
+        bias = "SHORT"
     
     return {
         "bias": bias,
-        "last_swing_high": sh_list[-1],
-        "last_swing_low": sl_list[-1]
+        "last_swing_high": last_sh,
+        "last_swing_low": last_sl
     }

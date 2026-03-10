@@ -40,7 +40,7 @@ def run_symbol_backtest(symbol, days):
 def main():
     # List of coins to test
     symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT', 'AVAX/USDT']
-    days = 180 
+    days = 360 
     
     print(f"--- PARALLEL SMC BACKTEST START (Symbols: {len(symbols)}) ---")
     

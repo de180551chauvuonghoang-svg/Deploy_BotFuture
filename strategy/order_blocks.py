@@ -103,19 +103,18 @@ def _filter_valid_obs(df, obs, ob_type):
                 continue
                 
             if ob_type == "BULLISH":
-                # Broken if price closes below OB bottom
+                # Broken if price CLOSES below OB bottom
                 broken_mask = df_after['close'] < ob['bottom']
-                hits_mask = (df_after['low'] <= ob['top']) & (df_after['high'] >= ob['bottom'])
             else:
+                # Broken if price CLOSES above OB top
                 broken_mask = df_after['close'] > ob['top']
-                hits_mask = (df_after['high'] >= ob['bottom']) & (df_after['low'] <= ob['top'])
                 
-            if not broken_mask.any() and hits_mask.sum() < 2:
+            if not broken_mask.any():
                 valid.append(ob)
         except:
             continue
             
-    return valid[-3:]
+    return valid[-5:] # Return more OBs for better coverage
 
 def price_in_ob_zone(current_price, ob_list):
     for ob in ob_list:
