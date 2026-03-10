@@ -1,0 +1,13 @@
+
+==================================================
+           ADVANCED SMC BACKTEST REPORT
+==================================================
+Initial Capital:  10000.00 USDT
+Final Capital:    9447.51 USDT
+Total PnL:        -552.49 USDT (-5.52%)
+Win Rate:         38.46%
+Profit Factor:    0.69
+Total Trades:     26
+Max Drawdown:     8.55%
+==================================================
+        
