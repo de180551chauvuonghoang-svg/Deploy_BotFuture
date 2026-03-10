@@ -1,0 +1,13 @@
+.env
+env.txt
+*.log
+backtest_results.txt
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.vscode/
+.idea/
+node_modules/
+dist/
+build/
+.streamlit/
