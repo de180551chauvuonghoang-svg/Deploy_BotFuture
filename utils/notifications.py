@@ -1,9 +1,10 @@
+import os
 import requests
 from config.config import Config
 from core.logger import logger
 
 def send_discord_notification(message):
-    if not Config.DISCORD_WEBHOOK_URL:
+    if not Config.DISCORD_WEBHOOK_URL or os.environ.get('IS_BACKTEST') == 'true':
         return
         
     try:

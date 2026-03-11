@@ -1,0 +1,68 @@
+# 📗 SMC STRATEGY BLUEPRINT: SMART MONEY CONCEPTS V2.0
+
+Tài liệu này chi tiết hóa toàn bộ chiến thuật, quản lý rủi ro và lô-gic thực thi của Trading Bot hiện tại.
+
+---
+
+## 🏗 1. Cấu trúc Đa khung thời gian (Multi-Timeframe Analysis)
+
+Bot sử dụng 03 khung thời gian để loại bỏ nhiễu và bám sát dòng tiền lớn:
+
+*   **Macro Context (4H)**: Dùng để xác định "Bias" (Xu hướng chính). Bot tìm kiếm các cấu trúc Higher High/Higher Low (Bullish) hoặc Lower High/Lower Low (Bearish). Nếu cấu trúc 4H không rõ ràng, bot sẽ đứng ngoài.
+*   **Value Zones (1H)**: Dùng để xác định các vùng giá trị:
+    *   **Order Blocks (OB)**: Những cây nến cuối cùng trước một đợt sóng mạnh, nơi các tổ chức tài chính đặt lệnh.
+    *   **Fair Value Gap (FVG)**: Các khoảng trống thanh khoản do mất cân bằng cung cầu.
+*   **Execution Entry (15M)**: Dùng để tìm điểm vào lệnh chính xác khi giá chạm vào vùng 1H.
+
+---
+
+## 🎯 2. Điều kiện vào lệnh (SMC Entry Logic)
+
+Một lệnh chỉ được thực thi khi tổng điểm hội tụ (**Confluence Score**) đạt từ **6.0/10.0** trở lên.
+
+| Yếu tố | Trình trạng | Điểm cộng | Ý nghĩa |
+| :--- | :--- | :--- | :--- |
+| **Market Structure** | Đúng Bias 4H | +2.5 | Thuận theo xu hướng lớn |
+| **Market Regime** | Trending | +1.5 | Thị trường đang có sóng mạnh |
+| **Order Block** | Price Hit 1H OB | +2.0 | Điểm xoay của dòng tiền lớn |
+| **FVG Gap** | Price In FVG | +1.0 | Lấp đầy thanh khoản |
+| **Liquidity Sweep** | Swept Wick | +1.5 | Loại bỏ các trader nhỏ lẻ (Stop Hunt) |
+| **RSI / ATR** | Momentum Support| +1.5 | Động lượng giá hỗ trợ |
+
+---
+
+## 💰 3. Quản lý vốn & Rủi ro (Smart Risk Management)
+
+Chiến thuật này sử dụng nguyên tắc **Rủi ro động (Dynamic Risk)** để tối ưu hóa lợi nhuận từ những kèo "thơm" nhất.
+
+### 🛡 Quy tắc Rủi ro trên mỗi lệnh:
+*   **Score 6.0 - 6.4**: Rủi ro **1.0%** vốn.
+*   **Score 7.5 - 8.4**: Rủi ro **1.5%** vốn.
+*   **Score >= 9.5**: Rủi ro **3.0%** vốn (Alpha Trade).
+
+### 🚀 Quy tắc Chốt lời (Take Profit):
+Bot sử dụng chiến thuật "Chốt lời từng phần" để gồng lãi tối đa:
+*   **TP1 (2.0R)**: Chốt 33% khối lượng + **Dời SL về hòa vốn (Breakeven)**.
+*   **TP2 (4.0R)**: Chốt thêm 33% khối lượng + **Dời SL đến vùng TP1** (Khóa lợi nhuận).
+*   **TP3 (6.0R)**: Tất toán toàn bộ lệnh.
+
+---
+
+## ⚙️ 4. Giới hạn vận hành (Execution Limits)
+
+*   **Shared Wallet**: Bot sử dụng chung 1 ví (Portfolio trading) để quản lý tỷ lệ ký quỹ an toàn.
+*   **Max Concurrent Trades**: Tối đa **5 lệnh** chạy đồng thời trên toàn bộ danh mục.
+*   **Max Daily Drawdown**: Nếu tổng lỗ trong ngày vượt quá **5%**, bot sẽ tự động dừng hoạt động để bảo vệ tài khoản.
+
+---
+
+## 📜 5. Quy trình làm việc của Bot
+
+1.  **Quét (Scan)**: Mỗi 60 giây, bot kiểm tra giá của BTC, ETH, SOL, BNB, XRP, AVAX.
+2.  **Lọc (Filter)**: Loại bỏ các cặp đang đi ngang (Ranging) hoặc không có Bias 4H rõ ràng.
+3.  **Báo động (Alert)**: Khi setup đạt **5.5 điểm**, gửi thông báo Prime Setup tới Discord.
+4.  **Thực thi (Trade)**: Khi setup chạm điểm vào và đạt >= **6.0 điểm**, tự động đặt lệnh Market trên Binance Futures.
+5.  **Quản lý (Manage)**: Giám sát lệnh 24/7 để dời SL và chốt lời tự động.
+
+---
+*Tài liệu này được tạo tự động bởi Antigravity AI dựa trên cấu trúc mã nguồn thực tế của dự án.*

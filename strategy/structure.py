@@ -7,14 +7,20 @@ def detect_structure(df: pd.DataFrame, lookback: int = 100) -> dict:
     Detects market structure (HH/HL/LH/LL) using fractal logic.
     Vectorized for performance during backtesting.
     """
-    if df is None or len(df) < 20:
+    if df is None or len(df) < 200:
         return {"bias": "NONE"}
 
     # 1. Identify Bias using EMA200
     if 'ema_200' in df.columns:
         ema200 = df['ema_200'].iloc[-1]
     else:
-        ema200 = ta.ema(df['close'], length=200).iloc[-1]
+        ema_series = ta.ema(df['close'], length=200)
+        if ema_series is None or len(ema_series) == 0:
+            return {"bias": "NONE"}
+        ema200 = ema_series.iloc[-1]
+    
+    if pd.isna(ema200):
+        return {"bias": "NONE"}
     curr_price = df['close'].iloc[-1]
 
     # 2. Identify Fractals (Vectorized)

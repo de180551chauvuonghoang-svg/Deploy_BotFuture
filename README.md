@@ -82,10 +82,19 @@ Logs are saved to `trading.log`. Real-time alerts are sent to your Discord chann
 _Disclaimer: Trading cryptocurrencies involves significant risk. This bot is for educational purposes. Use at your own risk._
 
 # Run Dashboard
-$env:PYTHONPATH = "."; streamlit run dashboard/app.py --server.port 8501 --browser.gatherUsageStats false
+
+# Chạy đồng thời bot và dashboard 
+$env:PYTHONPATH = "."; Start-Process python -ArgumentList "main.py" -NoNewWindow; streamlit run dashboard/app.py
+
+  
+streamlit run dashboard/app.py
+
 
 # run backtest
 python run_backtest.py
 
 # Dry-run project
 python main.py
+
+# Predict signals
+python predict_signals.py

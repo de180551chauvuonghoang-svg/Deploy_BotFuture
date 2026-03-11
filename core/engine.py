@@ -1,4 +1,8 @@
+import time
 from strategy.smc_strategy import SMCStrategy
+from core.exchange import ExchangeHandler
+from config.config import Config
+from core.logger import logger
 from risk.smart_risk import update_dynamic_exit
 from utils.notifications import notify_trade_opened, notify_trade_closed
 
@@ -17,8 +21,7 @@ class TradingEngine:
             logger.info("--- Starting Professional SMC Cycle ---")
             
             # 1. Update balance
-            balance_info = self.exchange.get_balance()
-            equity = balance_info.get('total', 0)
+            equity = self.exchange.get_balance()
             
             # 2. Iterate through symbols
             for symbol in Config.TRADING_PAIRS:
@@ -37,9 +40,9 @@ class TradingEngine:
         Fetches OHLCV data for multiple timeframes.
         """
         try:
-            df_15m = self.exchange.fetch_ohlcv(symbol, timeframe='15m', limit=100)
-            df_1h = self.exchange.fetch_ohlcv(symbol, timeframe='1h', limit=100)
-            df_4h = self.exchange.fetch_ohlcv(symbol, timeframe='4h', limit=200)
+            df_15m = self.exchange.fetch_ohlcv(symbol, timeframe='15m', limit=500)
+            df_1h = self.exchange.fetch_ohlcv(symbol, timeframe='1h', limit=500)
+            df_4h = self.exchange.fetch_ohlcv(symbol, timeframe='4h', limit=500)
             
             if df_15m is None or df_1h is None or df_4h is None:
                 return None
@@ -69,28 +72,61 @@ class TradingEngine:
             if signal != 'NONE':
                 self.open_position(symbol, signal_data)
         else:
-            # Dynamic Management
+            # 🔄 PROFESSIONAL TP/SL EXECUTION LÓGIC (Sync with Backtest)
             pos = positions[0]
+            contracts = abs(float(pos['contracts']))
             if symbol in self.active_positions:
-                pos_info = self.active_positions[symbol]
-                import pandas_ta as ta
-                atr_15m = ta.atr(df_15m['high'], df_15m['low'], df_15m['close']).iloc[-1]
+                p_info = self.active_positions[symbol]
+                high_15m = df_15m['high'].iloc[-1]
+                low_15m = df_15m['low'].iloc[-1]
+                curr_px = df_15m['close'].iloc[-1]
                 
-                # Check for TP1 hit to set breakeven (simplified check)
-                tp1_hit = (pos_info['side'] == 'LONG' and df_15m['high'].iloc[-1] >= pos_info['tp1']) or \
-                          (pos_info['side'] == 'SHORT' and df_15m['low'].iloc[-1] <= pos_info['tp1'])
+                side = p_info['side'] # 'LONG' or 'SHORT'
                 
-                new_sl = update_dynamic_exit(
-                    curr_price, pos_info['entry'], pos_info['sl'], pos_info['side'], atr_15m, tp1_hit
-                )
-                
-                if new_sl != pos_info['sl']:
-                    logger.info(f"SMC: Moving SL for {symbol} to {new_sl}")
-                    pos_info['sl'] = new_sl
+                # A. STOP LOSS CHECK
+                is_sl = (side == 'LONG' and low_15m <= p_info['sl']) or \
+                        (side == 'SHORT' and high_15m >= p_info['sl'])
+                if is_sl:
+                    self.close_position(symbol, f"SMC Stop Loss Hit @ {p_info['sl']:.4f}")
+                    return
 
-            # Reversal check
-            side = 'LONG' if float(pos['contracts']) > 0 else 'SHORT'
-            if (side == 'LONG' and signal == 'SHORT') or (side == 'SHORT' and signal == 'LONG'):
+                # B. PARTIAL TP1 (33%)
+                if not p_info.get('tp1_done'):
+                    is_tp1 = (side == 'LONG' and high_15m >= p_info['tp1']) or \
+                             (side == 'SHORT' and low_15m <= p_info['tp1'])
+                    if is_tp1:
+                        close_amt = contracts * 0.33
+                        logger.info(f"SMC: TP1 Hit for {symbol}! Closing 33% ({close_amt:.2f})")
+                        self.exchange.create_order(symbol, 'sell' if side == 'LONG' else 'buy', close_amt)
+                        p_info['tp1_done'] = True
+                        p_info['sl'] = p_info['entry'] # Move to Break-even
+                        logger.info(f"SMC: Moved SL to Breakeven ({p_info['sl']:.4f})")
+                        return
+
+                # C. PARTIAL TP2 (33%)
+                if p_info.get('tp1_done') and not p_info.get('tp2_done'):
+                    is_tp2 = (side == 'LONG' and high_15m >= p_info['tp2']) or \
+                             (side == 'SHORT' and low_15m <= p_info['tp2'])
+                    if is_tp2:
+                        close_amt = contracts * 0.50 # Half of remaining (approx 33% of original)
+                        logger.info(f"SMC: TP2 Hit for {symbol}! Closing 33% ({close_amt:.2f})")
+                        self.exchange.create_order(symbol, 'sell' if side == 'LONG' else 'buy', close_amt)
+                        p_info['tp2_done'] = True
+                        p_info['sl'] = p_info['tp1'] # Lock profit at TP1
+                        logger.info(f"SMC: Locked Profit at TP1 ({p_info['sl']:.4f})")
+                        return
+
+                # D. FULL TP3 (Final Target)
+                if p_info.get('tp2_done'):
+                    is_tp3 = (side == 'LONG' and high_15m >= p_info.get('tp3', p_info['tp2'] * 1.05)) or \
+                             (side == 'SHORT' and low_15m <= p_info.get('tp3', p_info['tp2'] * 0.95))
+                    if is_tp3:
+                        self.close_position(symbol, f"SMC Final TP3 Target Hit")
+                        return
+
+            # E. REVERSAL CHECK
+            side_actual = 'LONG' if float(pos['contracts']) > 0 else 'SHORT'
+            if (side_actual == 'LONG' and signal == 'SHORT') or (side_actual == 'SHORT' and signal == 'LONG'):
                 self.close_position(symbol, "SMC Signal Reversal")
 
     def open_position(self, symbol, signal_data):
@@ -103,7 +139,12 @@ class TradingEngine:
         self.exchange.set_leverage(symbol, Config.LEVERAGE)
         
         logger.info(f"ENTRY: {signal_data['reason']}")
-        order = self.exchange.create_order(symbol, side_cmd, amount)
+        order = self.exchange.create_order(
+            symbol, side_cmd, amount, 
+            sl=signal_data['sl'], 
+            tp1=signal_data['tp1'], 
+            tp2=signal_data['tp2']
+        )
         
         if order:
             self.active_positions[symbol] = {

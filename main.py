@@ -1,6 +1,12 @@
 from core.engine import TradingEngine
 from core.logger import logger
 import sys
+import warnings
+import pandas as pd
+
+# Silence annoying pandas warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+pd.set_option('future.no_silent_downcasting', True)
 
 def main():
     """
@@ -9,7 +15,7 @@ def main():
     """
     try:
         logger.info("==================================================")
-        logger.info("  🚀 ADVANCED SMC TRADING BOT IS STARTING")
+        logger.info("  ADVANCED SMC TRADING BOT IS STARTING")
         logger.info("  Regime: Multi-Timeframe (4H, 1H, 15M)")
         logger.info("  Modules: Structure, Order Block, FVG, Confluence")
         logger.info("  Dashboard: http://localhost:8501")

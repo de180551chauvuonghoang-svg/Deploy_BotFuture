@@ -1,0 +1,12 @@
+
+==================================================
+       PARALLEL SMC MULTI-TOKEN GLOBAL REPORT
+==================================================
+Test Duration:    554 Days
+Symbols tested:   6
+Total PnL:        35240.12 USDT
+Win Rate:         54.70%
+Total Trades:     1510
+Final Balance:    95240.12 USDT
+==================================================
+    
