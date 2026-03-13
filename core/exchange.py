@@ -45,25 +45,35 @@ class ExchangeHandler:
             # We still initialize the exchange to fetch OHLCV data, but we don't use the sandbox
 
     def fetch_ohlcv(self, symbol, timeframe='15m', limit=100):
-        try:
-            ohlcv = self.public_exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
-            # Ensure numeric types
-            for col in ['open', 'high', 'low', 'close', 'volume']:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            df.dropna(subset=['close'], inplace=True)
-            df.set_index('timestamp', inplace=True)
-            return df
-        except Exception as e:
-            logger.error(f"Error fetching OHLCV for {symbol}: {e}")
-            return None
+        retries = 3
+        delay = 1 # seconds
+        for i in range(retries):
+            try:
+                ohlcv = self.public_exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+                if not ohlcv:
+                    return None
+                    
+                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+                # Ensure numeric types
+                for col in ['open', 'high', 'low', 'close', 'volume']:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                df.dropna(subset=['close'], inplace=True)
+                df.set_index('timestamp', inplace=True)
+                return df
+            except Exception as e:
+                if i < retries - 1:
+                    logger.warning(f"Retry {i+1}/{retries} fetching {symbol} {timeframe} due to: {e}")
+                    time.sleep(delay * (i + 1))
+                else:
+                    logger.error(f"Final error fetching OHLCV for {symbol} after {retries} retries: {e}")
+                    return None
 
     def get_balance(self, asset='USDT'):
         if self.dry_run:
             history = self._load_trade_history()
             total_realized_pnl = sum(float(trade.get('pnl', 0)) for trade in history)
-            return 10000.0 + total_realized_pnl
+            return Config.INITIAL_DRY_BALANCE + total_realized_pnl
         try:
             balance = self.exchange.fetch_balance()
             return balance.get('total', {}).get(asset, 0)

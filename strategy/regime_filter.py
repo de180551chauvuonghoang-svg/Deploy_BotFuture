@@ -40,16 +40,14 @@ def get_regime(df_1h: pd.DataFrame) -> str:
         bbw_20th = bb_width.rolling(window=100).quantile(0.2).iloc[-1]
 
     # --- REGIME LOGIC ---
-    if atr_now > 1.8 * atr_sma:
+    if atr_now > 2.0 * atr_sma: # Increased threshold for extreme volatility
         return "HIGH_VOLATILITY"
     
     if bbw_now < bbw_20th:
         return "SQUEEZE"
         
-    if adx > 25:
+    if adx > 20: # Lowered threshold to 20 for trending
         return "TRENDING"
     
-    if adx < 20:
-        return "RANGING"
-        
-    return "AVOID"
+    # If not trending or special volatile condition, it's RANGING
+    return "RANGING"

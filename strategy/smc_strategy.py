@@ -7,6 +7,7 @@ from strategy.fvg import find_fvg, price_in_fvg
 from strategy.liquidity import detect_liquidity_sweep
 from strategy.confluence import score_setup
 from risk.smart_risk import calculate_smart_sl_tp
+from config.config import Config
 from utils.notifications import notify_trade_opened, notify_trade_closed, send_discord_notification
 
 def notify_potential_signal(symbol, bias, score, reason):
@@ -81,22 +82,28 @@ class SMCStrategy:
             return {"signal": "NONE", "reason": "No clear 4H structure bias", "confluences": confluences}
         if not (ob_hit or fvg_hit):
             return {"signal": "NONE", "reason": "Price not in 1H OB/FVG zone", "confluences": confluences}
-        if score < 6.0:
-            if score >= 5.5:
+        if score < Config.MIN_SCORE_THRESHOLD:
+            if score >= (Config.MIN_SCORE_THRESHOLD - 0.5):
                 # Prediction alert for high-quality setup close to triggering
-                notify_potential_signal(symbol, bias, score, "Prime Setup - Very close to entry trigger (Score 6.0)")
-            return {"signal": "NONE", "reason": f"Quality score {score:.1f} too low", "confluences": confluences}
+                notify_potential_signal(symbol, bias, score, f"Prime Setup - Very close to entry trigger (Score {Config.MIN_SCORE_THRESHOLD})")
+            return {"signal": "NONE", "reason": f"Quality score {score:.1f} too low (Min: {Config.MIN_SCORE_THRESHOLD})", "confluences": confluences}
 
         # 6. Risk Calculation
+        # ENTRY OPTIMIZATION: Enter at 50% Equilibrium of the OB for higher R/R and Win Rate
+        if ob_hit:
+            entry_px = (ob_hit['top'] + ob_hit['bottom']) / 2
+        else:
+            entry_px = curr_px # Fallback for FVG
+            
         atr_15m = ta.atr(df_15m['high'], df_15m['low'], df_15m['close']).iloc[-1]
-        risk_data = calculate_smart_sl_tp(bias, curr_px, ob_hit, atr_15m, balance, score)
+        risk_data = calculate_smart_sl_tp(bias, entry_px, ob_hit, atr_15m, balance, score)
         
         if not risk_data:
             return {"signal": "NONE", "reason": "Risk distance too large", "confluences": confluences}
 
         return {
             "signal": bias,
-            "entry": curr_px,
+            "entry": entry_px,
             "sl": risk_data["sl"],
             "tp1": risk_data["tp1"],
             "tp2": risk_data["tp2"],

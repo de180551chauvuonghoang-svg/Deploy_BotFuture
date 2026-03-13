@@ -19,9 +19,10 @@ def fetch_historical_data(exchange, symbol, timeframe, days=180):
     # Try loading from cache
     if os.path.exists(cache_file):
         df = pd.read_csv(cache_file, index_col='timestamp', parse_dates=True)
-        # Check if cache is recent enough (within 1 hour)
+        # Fix: Ensure comparison is timezone-aware or both UTC
         last_candle = df.index[-1]
-        if last_candle > datetime.now() - timedelta(hours=1):
+        now_utc = datetime.utcnow()
+        if last_candle > now_utc - timedelta(hours=1):
             logger.info(f"Loaded {symbol} ({timeframe}) from cache.")
             return df
 

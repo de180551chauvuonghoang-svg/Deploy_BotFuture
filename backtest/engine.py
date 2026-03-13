@@ -161,9 +161,27 @@ class Backtester:
     def report(self):
         if not self.trade_log: return "No trades."
         df = pd.DataFrame(self.trade_log)
+        
+        # Save to CSV for later analysis
+        df.to_csv("backtest_trades_single.csv", index=False)
+        
         total_pnl = df['pnl'].sum()
+        roi = (total_pnl / self.initial_capital) * 100
         win_rate = (len(df[df['pnl'] > 0]) / len(df)) * 100
         
+        # Advanced Statistics
+        wins = df[df['pnl'] > 0]
+        losses = df[df['pnl'] < 0]
+        draws = df[df['pnl'] == 0]
+        
+        total_wins = len(wins)
+        total_losses = len(losses)
+        total_draws = len(draws)
+        
+        gross_profit = wins['pnl'].sum() if not wins.empty else 0
+        gross_loss = abs(losses['pnl'].sum()) if not losses.empty else 0
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
+
         # Calculate Drawdown
         cum_pnl = df['pnl'].cumsum() + self.initial_capital
         peak = cum_pnl.expanding().max()
@@ -174,9 +192,15 @@ class Backtester:
 ==================================================
            SMC FAST BACKTEST REPORT
 ==================================================
-Lợi nhuận: {total_pnl:.2f} USDT ({ (total_pnl/self.initial_capital)*100:.2f}%)
+Lợi nhuận: {total_pnl:.2f} USDT ({roi:.2f}%)
 Tỷ lệ thắng: {win_rate:.2f}%
 Tổng số lệnh: {len(df)}
+--------------------------------------------------
+Thắng (Win): {total_wins}
+Thua (Loss): {total_losses}
+Hòa (Draw):  {total_draws}
+Profit Factor: {profit_factor:.2f}
 Max Drawdown: {max_dd:.2f}%
 ==================================================
+Trade logs saved to backtest_trades_single.csv
 """

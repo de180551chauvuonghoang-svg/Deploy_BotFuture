@@ -64,18 +64,36 @@ st.sidebar.write("---")
 st.sidebar.write(f"**Pairs:** {', '.join(Config.TRADING_PAIRS)}")
 
 # 1. Real-time Metrics and Positions Fragment
-@st.fragment(run_every=5) # Real-time feel every 5 seconds
+@st.fragment(run_every=1) # Real-time updates every 1 second
 def show_realtime_data():
     positions = exchange.fetch_positions(Config.TRADING_PAIRS)
-    balance = exchange.get_balance()
+    initial_balance = exchange.get_balance()
+    
+    # Calculate real-time Account Balance
+    total_margin_used = sum(float(p.get('initialMargin', 0)) for p in positions)
+    total_upnl = sum(float(p.get('unrealizedPnl', 0)) for p in positions)
+    available_balance = initial_balance - total_margin_used
+    realtime_balance = available_balance + total_upnl
     
     col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-    col_stat1.metric("Account Balance", f"{balance:,.2f} USDT")
+    col_stat1.metric("Account Balance", f"{realtime_balance:,.2f} USDT", delta=total_upnl, delta_color="normal")
     col_stat2.metric("Active Positions", len(positions))
     
-    total_upnl = sum(float(p.get('unrealizedPnl', 0)) for p in positions)
     col_stat3.metric("Unrealized PnL", f"{total_upnl:,.2f} USDT", delta_color="normal")
     col_stat4.metric("Status", "🟢 Running" if exchange.dry_run or exchange.exchange.api_key else "🔴 Error")
+
+    # Show balance breakdown
+    with st.expander("💰 Balance Breakdown", expanded=True):
+        bal_col1, bal_col2, bal_col3 = st.columns(3)
+        bal_col1.metric("Initial Capital", f"{initial_balance:,.2f} USDT")
+        bal_col2.metric("Total Margin Used", f"-{total_margin_used:,.2f} USDT", delta_color="off")
+        bal_col3.metric("Available Balance", f"{available_balance:,.2f} USDT")
+        
+        st.divider()
+        
+        bal_col_a, bal_col_b = st.columns(2)
+        bal_col_a.metric("Available Balance", f"{available_balance:,.2f} USDT")
+        bal_col_b.metric("+ Unrealized PnL", f"{total_upnl:,.2f} USDT", delta_color="normal")
 
     st.header("⚡ Active Trading Positions")
     
@@ -163,38 +181,23 @@ def show_realtime_data():
     else:
         st.info("No active positions currently. Waiting for SMC triggers...")
 
-@st.fragment(run_every=90) # Less frequent scanner
+@st.fragment(run_every=30) # Refresh more frequently now that it's just reading a file
 def show_scanner():
     st.header("📡 Market Scanner (SMC Setups)")
-    st.info("Scanner updates every 90 seconds to save bandwidth.")
+    st.info("Scanner synced 1:1 with Terminal (Bot Engine).")
     
+    state_file = os.path.join(Config.DATA_DIR, "market_scanner.json")
     all_signals = []
-    scan_progress = st.progress(0, text="Scanning markets...")
-    balance_local = exchange.get_balance()
     
-    for i, symbol in enumerate(Config.TRADING_PAIRS):
-        scan_progress.progress((i + 1) / len(Config.TRADING_PAIRS), text=f"Analyzing {symbol}...")
+    if os.path.exists(state_file):
         try:
-            df_15m_all = exchange.fetch_ohlcv(symbol, timeframe='15m', limit=200)
-            df_1h_all = exchange.fetch_ohlcv(symbol, timeframe='1h', limit=200)
-            df_4h_all = exchange.fetch_ohlcv(symbol, timeframe='4h', limit=200)
-            
-            from strategy.smc_strategy import SMCStrategy
-            strategy = SMCStrategy()
-            sig_data_all = strategy.generate_signal(symbol, exchange, df_4h_all, df_1h_all, df_15m_all, balance=balance_local)
-            conf_local = sig_data_all.get("confluences", {})
-            
-            all_signals.append({
-                "Symbol": symbol,
-                "Signal": sig_data_all['signal'],
-                "Price": sig_data_all.get('entry', 0.0),
-                "Score": conf_local.get('score', 0.0),
-                "Regime": conf_local.get('regime', 'N/A'),
-                "Reason": sig_data_all.get('reason', 'N/A')
-            })
-        except: continue
-
-    scan_progress.empty()
+            import json
+            with open(state_file, 'r') as f:
+                all_signals = json.load(f)
+        except Exception as e:
+            st.error(f"Error reading scanner state: {e}")
+    else:
+        st.warning("Waiting for Bot Engine to complete its first cycle...")
     
     if all_signals:
         sig_df = pd.DataFrame(all_signals)
@@ -245,7 +248,8 @@ with tab1:
             conf = sig_data["confluences"]
             # These will render inside the status if we don't move them, so we just finish status first
         
-        status.update(label=f"✅ {selected_symbol} Analysis Ready", state="complete", expanded=False)
+        if status:
+            status.update(label=f"✅ {selected_symbol} Analysis Ready", state="complete", expanded=False)
 
     # Render main content outside the status so it's clean
     if sig_data and "confluences" in sig_data:
@@ -374,9 +378,40 @@ with tab2:
     
     if history:
         hist_df = pd.DataFrame(history)
-        hist_df['entryTime'] = pd.to_datetime(hist_df['entryTime']).dt.tz_localize(None)
-        hist_df['exitTime'] = pd.to_datetime(hist_df['exitTime']).dt.tz_localize(None)
-        
+        # Convert times to naive string format for Excel visibility
+        if 'entryTime' in hist_df.columns:
+            # More robust cleaning: split by 'Z' or '+' to get the base naive timestamp
+            clean_entry = hist_df['entryTime'].astype(str).str.split(r'[Z\+]').str[0]
+            hist_df['entryTime_dt'] = pd.to_datetime(clean_entry, errors='coerce')
+            hist_df['entryTime'] = hist_df['entryTime_dt'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        if 'exitTime' in hist_df.columns:
+            clean_exit = hist_df['exitTime'].astype(str).str.split(r'[Z\+]').str[0]
+            hist_df['exitTime_dt'] = pd.to_datetime(clean_exit, errors='coerce')
+            hist_df['exitTime'] = hist_df['exitTime_dt'].dt.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Recalculate duration if it's "N/A" or missing
+        if 'entryTime_dt' in hist_df.columns and 'exitTime_dt' in hist_df.columns:
+            def calc_duration(row):
+                if pd.notna(row['entryTime_dt']) and pd.notna(row['exitTime_dt']):
+                    diff = row['exitTime_dt'] - row['entryTime_dt']
+                    total_sec = int(diff.total_seconds())
+                    if total_sec < 0: return "N/A"
+                    h, rem = divmod(total_sec, 3600)
+                    m, s = divmod(rem, 60)
+                    return f"{h:02d}h {m:02d}m {s:02d}s"
+                return "N/A"
+            hist_df['duration'] = hist_df.apply(calc_duration, axis=1)
+
+        # Calculate Entry Cost (Margin) for each trade
+        if 'amount' in hist_df.columns and 'entryPrice' in hist_df.columns:
+            # Entry Cost = (Amount * Price) / Leverage (Default 10)
+            hist_df['Entry Cost (USDT)'] = (hist_df['amount'] * hist_df['entryPrice']) / Config.LEVERAGE
+            hist_df['Entry Cost (USDT)'] = hist_df['Entry Cost (USDT)'].round(2)
+
+        # Professional casing
+        if 'side' in hist_df.columns:
+            hist_df['side'] = hist_df['side'].str.upper()
+
         # Summary Stats
         total_trades = len(hist_df)
         winning_trades = len(hist_df[hist_df['pnl'] > 0])
@@ -389,16 +424,27 @@ with tab2:
         c3.metric("Total Net Profit", f"{total_pnl:.2f} USDT", 
                   delta=f"{total_pnl:.2f}", delta_color="normal" if total_pnl >= 0 else "inverse")
         
-        # Excel Export
+        # Excel Export with better Formatting
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             hist_df.to_excel(writer, index=False, sheet_name='TradeHistory')
-            # Add summary sheet
+            # Summary sheet
             summary_data = {
-                "Metric": ["Total Trades", "Winning Trades", "Win Rate (%)", "Total PnL (USDT)", "Avg ROI (%)"],
-                "Value": [total_trades, winning_trades, f"{win_rate:.2f}%", f"{total_pnl:.2f}", f"{hist_df['roi'].mean():.2f}%"]
+                "Metric": ["Total Trades", "Winning Trades", "Win Rate (%)", "Total PnL (USDT)", "Avg ROI (%)", "Avg Entry Cost (USDT)"],
+                "Value": [total_trades, winning_trades, f"{win_rate:.2f}%", f"{total_pnl:.2f}", f"{hist_df['roi'].mean():.2f}%", f"{hist_df['Entry Cost (USDT)'].mean():.2f}"]
             }
             pd.DataFrame(summary_data).to_excel(writer, index=False, sheet_name='Summary')
+            
+            # Auto-adjust column widths using openpyxl
+            for sheet_name in writer.sheets:
+                 worksheet = writer.sheets[sheet_name]
+                 for col_cells in worksheet.columns:
+                      max_len = 0
+                      col_idx = col_cells[0].column # col index starts from 1
+                      for cell in col_cells:
+                           if cell.value:
+                                max_len = max(max_len, len(str(cell.value)))
+                      worksheet.column_dimensions[col_cells[0].column_letter].width = max_len + 3
         
         excel_data = output.getvalue()
         
@@ -427,7 +473,7 @@ with tab2:
 def show_logs():
     st.header("📜 Recent Activity")
     if os.path.exists(Config.LOG_FILE):
-        with open(Config.LOG_FILE, 'r') as f:
+        with open(Config.LOG_FILE, 'r', encoding='utf-8') as f:
             lines = f.readlines()[-15:]
             log_text = "".join(reversed(lines))
             st.code(log_text)

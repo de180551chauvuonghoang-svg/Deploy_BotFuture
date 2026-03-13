@@ -8,7 +8,7 @@ def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score):
     # 1. Stop Loss Placement
     if ob:
         # Buffer SL with ATR to avoid liquidity sweeps (0.5x ATR)
-        sl_buffer = 0.5 * atr_val
+        sl_buffer = 0.8 * atr_val
         if side == "LONG":
             sl = ob['bottom'] - sl_buffer
         else:
@@ -26,21 +26,24 @@ def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score):
 
     sl_dist = abs(entry - sl)
 
-    # 2. Position Sizing (Aggressive Compounding for Premium Setups)
+    # 2. Position Sizing (Sniper Elite Sizing)
     risk_pct = 0.005 # Base 0.5%
-    if score >= 9.5: risk_pct = 0.030   # 3% Alpha Setup
-    elif score >= 9.0: risk_pct = 0.025 # 2.5%
-    elif score >= 8.5: risk_pct = 0.020 # 2.0%
-    elif score >= 7.5: risk_pct = 0.015 # 1.5%
-    elif score >= 6.5: risk_pct = 0.010 # 1.0%
+    if score >= 9.5: risk_pct = 0.055   # 5.5% for A++ setups
+    elif score >= 9.0: risk_pct = 0.045 # 4.5%
+    elif score >= 8.5: risk_pct = 0.035 # 3.5%
     
     risk_amount = account_balance * risk_pct
     position_size = risk_amount / sl_dist if sl_dist > 0 else 0
 
-    # 3. Take Profit (Extreme RR: 1:2, 1:4, 1:6)
-    tp1 = entry + (sl_dist * 2.0) if side == "LONG" else entry - (sl_dist * 2.0)
-    tp2 = entry + (sl_dist * 4.0) if side == "LONG" else entry - (sl_dist * 4.0)
-    tp3 = entry + (sl_dist * 6.0) if side == "LONG" else entry - (sl_dist * 6.0)
+    # Limit per-trade leverage to 2.0x (Professional mandate)
+    max_size = (account_balance * 2.0) / entry
+    if position_size > max_size:
+        position_size = max_size
+
+    # 3. Take Profit (Sniper Sniper Targets: 1.2R / 3.5R / 7.0R)
+    tp1 = entry + (sl_dist * 1.2) if side == "LONG" else entry - (sl_dist * 1.2)
+    tp2 = entry + (sl_dist * 3.5) if side == "LONG" else entry - (sl_dist * 3.5)
+    tp3 = entry + (sl_dist * 7.0) if side == "LONG" else entry - (sl_dist * 7.0)
     
     return {
         "sl": sl,

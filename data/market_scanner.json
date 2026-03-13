@@ -1,0 +1,186 @@
+[
+  {
+    "Symbol": "BTC/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 3.5,
+    "Regime": "TRENDING",
+    "Reason": "Quality score 3.5 too low (Min: 8.5)"
+  },
+  {
+    "Symbol": "ETH/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 2.0,
+    "Regime": "TRENDING",
+    "Reason": "Quality score 2.0 too low (Min: 8.5)"
+  },
+  {
+    "Symbol": "SOL/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 4.5,
+    "Regime": "TRENDING",
+    "Reason": "Quality score 4.5 too low (Min: 8.5)"
+  },
+  {
+    "Symbol": "BNB/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 0.5,
+    "Regime": "TRENDING",
+    "Reason": "Price not in 1H OB/FVG zone"
+  },
+  {
+    "Symbol": "XRP/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 2.0,
+    "Regime": "TRENDING",
+    "Reason": "Quality score 2.0 too low (Min: 8.5)"
+  },
+  {
+    "Symbol": "AVAX/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 0.5,
+    "Regime": "TRENDING",
+    "Reason": "Price not in 1H OB/FVG zone"
+  },
+  {
+    "Symbol": "ADA/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 0.5,
+    "Regime": "TRENDING",
+    "Reason": "Price not in 1H OB/FVG zone"
+  },
+  {
+    "Symbol": "DOGE/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 0.5,
+    "Regime": "TRENDING",
+    "Reason": "Price not in 1H OB/FVG zone"
+  },
+  {
+    "Symbol": "LINK/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 2.0,
+    "Regime": "TRENDING",
+    "Reason": "Quality score 2.0 too low (Min: 8.5)"
+  },
+  {
+    "Symbol": "DOT/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 0.0,
+    "Regime": "SQUEEZE",
+    "Reason": "No clear 4H structure bias"
+  },
+  {
+    "Symbol": "NEAR/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 2.0,
+    "Regime": "TRENDING",
+    "Reason": "Quality score 2.0 too low (Min: 8.5)"
+  },
+  {
+    "Symbol": "LTC/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 0.5,
+    "Regime": "TRENDING",
+    "Reason": "Price not in 1H OB/FVG zone"
+  },
+  {
+    "Symbol": "BCH/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 0.0,
+    "Regime": "TRENDING",
+    "Reason": "No clear 4H structure bias"
+  },
+  {
+    "Symbol": "WIF/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 2.5,
+    "Regime": "TRENDING",
+    "Reason": "Quality score 2.5 too low (Min: 8.5)"
+  },
+  {
+    "Symbol": "SUI/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 0.5,
+    "Regime": "TRENDING",
+    "Reason": "Price not in 1H OB/FVG zone"
+  },
+  {
+    "Symbol": "APT/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 1.0,
+    "Regime": "TRENDING",
+    "Reason": "Price not in 1H OB/FVG zone"
+  },
+  {
+    "Symbol": "FET/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 2.0,
+    "Regime": "TRENDING",
+    "Reason": "Quality score 2.0 too low (Min: 8.5)"
+  },
+  {
+    "Symbol": "RENDER/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 1.0,
+    "Regime": "TRENDING",
+    "Reason": "Price not in 1H OB/FVG zone"
+  },
+  {
+    "Symbol": "INJ/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 0.5,
+    "Regime": "TRENDING",
+    "Reason": "Price not in 1H OB/FVG zone"
+  },
+  {
+    "Symbol": "OP/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 0.5,
+    "Regime": "TRENDING",
+    "Reason": "Price not in 1H OB/FVG zone"
+  },
+  {
+    "Symbol": "ARB/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 2.5,
+    "Regime": "TRENDING",
+    "Reason": "Quality score 2.5 too low (Min: 8.5)"
+  },
+  {
+    "Symbol": "TIA/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 2.5,
+    "Regime": "TRENDING",
+    "Reason": "Quality score 2.5 too low (Min: 8.5)"
+  },
+  {
+    "Symbol": "STX/USDT",
+    "Signal": "NONE",
+    "Price": 0.0,
+    "Score": 2.5,
+    "Regime": "TRENDING",
+    "Reason": "Quality score 2.5 too low (Min: 8.5)"
+  }
+]

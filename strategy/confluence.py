@@ -35,11 +35,11 @@ def score_setup(bias, regime, ob_hit, fvg_hit,
     if round(curr_px * 100) % 50 == 0:
         score += 0.5
 
-    # 3. Liquidity (+1.5)
+    # 3. Liquidity (+2.0)
     if liquidity_data['swept']:
         if (bias == "LONG" and liquidity_data['direction'] == "bull") or \
            (bias == "SHORT" and liquidity_data['direction'] == "bear"):
-            score += 1.5
+            score += 2.0
 
     # 4. Momentum (+1.5 total)
     if 'rsi' in df_15m.columns:
@@ -65,6 +65,6 @@ def score_setup(bias, regime, ob_hit, fvg_hit,
     is_bear_engulf = curr['close'] < prev['open'] and curr['open'] > prev['close'] and curr['close'] < curr['open']
     
     if (bias == "LONG" and is_bull_engulf) or (bias == "SHORT" and is_bear_engulf):
-        score += 1.0
+        score += 1.5
 
     return min(score, 10.0)

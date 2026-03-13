@@ -1,4 +1,6 @@
 import time
+import os
+import json
 from strategy.smc_strategy import SMCStrategy
 from core.exchange import ExchangeHandler
 from config.config import Config
@@ -23,9 +25,15 @@ class TradingEngine:
             # 1. Update balance
             equity = self.exchange.get_balance()
             
-            # 2. Iterate through symbols
+            # 2. Iterate through symbols and collect scan data
+            scan_results = []
             for symbol in Config.TRADING_PAIRS:
-                self.process_symbol(symbol, equity)
+                res = self.process_symbol(symbol, equity)
+                if res:
+                    scan_results.append(res)
+            
+            # 3. Save shared state for Dashboard sync
+            self._save_scan_state(scan_results)
                 
             logger.info("--- Cycle Complete ---")
             return True
@@ -34,6 +42,15 @@ class TradingEngine:
             import traceback
             logger.error(traceback.format_exc())
             return True
+
+    def _save_scan_state(self, scan_results):
+        import json
+        state_file = os.path.join(Config.DATA_DIR, "market_scanner.json")
+        try:
+            with open(state_file, 'w') as f:
+                json.dump(scan_results, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving scanner state: {e}")
 
     def _fetch_multi_tf_data(self, symbol):
         """
@@ -62,8 +79,11 @@ class TradingEngine:
         if not signal_data: return
         
         signal = signal_data.get('signal', 'NONE')
-        curr_price = signal_data.get('entry')
+        score = signal_data.get('confluences', {}).get('score', 0)
         
+        # Verbose scanning log to terminal
+        logger.info(f"Scanning {symbol}: Signal={signal} | Score={score:.1f}")
+
         # 3. Check existing positions
         positions = self.exchange.fetch_positions([symbol])
         has_position = len(positions) > 0
@@ -79,7 +99,6 @@ class TradingEngine:
                 p_info = self.active_positions[symbol]
                 high_15m = df_15m['high'].iloc[-1]
                 low_15m = df_15m['low'].iloc[-1]
-                curr_px = df_15m['close'].iloc[-1]
                 
                 side = p_info['side'] # 'LONG' or 'SHORT'
                 
@@ -88,7 +107,7 @@ class TradingEngine:
                         (side == 'SHORT' and high_15m >= p_info['sl'])
                 if is_sl:
                     self.close_position(symbol, f"SMC Stop Loss Hit @ {p_info['sl']:.4f}")
-                    return
+                    return None # Position closed, stop processing this symbol
 
                 # B. PARTIAL TP1 (33%)
                 if not p_info.get('tp1_done'):
@@ -101,7 +120,8 @@ class TradingEngine:
                         p_info['tp1_done'] = True
                         p_info['sl'] = p_info['entry'] # Move to Break-even
                         logger.info(f"SMC: Moved SL to Breakeven ({p_info['sl']:.4f})")
-                        return
+                        notify_trade_closed(symbol, 0, f"TP1 Partial Closed (33%) - Moved to BE")
+                        return None
 
                 # C. PARTIAL TP2 (33%)
                 if p_info.get('tp1_done') and not p_info.get('tp2_done'):
@@ -114,7 +134,8 @@ class TradingEngine:
                         p_info['tp2_done'] = True
                         p_info['sl'] = p_info['tp1'] # Lock profit at TP1
                         logger.info(f"SMC: Locked Profit at TP1 ({p_info['sl']:.4f})")
-                        return
+                        notify_trade_closed(symbol, 0, f"TP2 Partial Closed (33%) - Locked Profit at TP1")
+                        return None
 
                 # D. FULL TP3 (Final Target)
                 if p_info.get('tp2_done'):
@@ -122,12 +143,23 @@ class TradingEngine:
                              (side == 'SHORT' and low_15m <= p_info.get('tp3', p_info['tp2'] * 0.95))
                     if is_tp3:
                         self.close_position(symbol, f"SMC Final TP3 Target Hit")
-                        return
+                        return None
 
             # E. REVERSAL CHECK
             side_actual = 'LONG' if float(pos['contracts']) > 0 else 'SHORT'
             if (side_actual == 'LONG' and signal == 'SHORT') or (side_actual == 'SHORT' and signal == 'LONG'):
                 self.close_position(symbol, "SMC Signal Reversal")
+                return None
+
+        # 4. Return for state sync
+        return {
+            "Symbol": symbol,
+            "Signal": signal,
+            "Price": signal_data.get('entry', 0.0),
+            "Score": score,
+            "Regime": signal_data.get('confluences', {}).get('regime', 'N/A'),
+            "Reason": signal_data.get('reason', 'N/A')
+        }
 
     def open_position(self, symbol, signal_data):
         side_cmd = 'buy' if signal_data['signal'] == 'LONG' else 'sell'
@@ -138,7 +170,7 @@ class TradingEngine:
 
         self.exchange.set_leverage(symbol, Config.LEVERAGE)
         
-        logger.info(f"ENTRY: {signal_data['reason']}")
+        logger.info(f"🔥 ENTRY KÍCH HOẠT: {symbol} {signal_data['signal']} | Reason: {signal_data['reason']}")
         order = self.exchange.create_order(
             symbol, side_cmd, amount, 
             sl=signal_data['sl'], 
@@ -152,10 +184,12 @@ class TradingEngine:
                 'entry': price,
                 'sl': signal_data['sl'],
                 'tp1': signal_data['tp1'],
-                'tp2': signal_data['tp2']
+                'tp2': signal_data['tp2'],
+                'tp3': signal_data.get('tp3')
             }
-            logger.info(f"SMC Position: {symbol} @ {price} | SL: {signal_data['sl']:.2f}")
+            logger.info(f"✅ ĐÃ VÀO LỆNH: {symbol} @ {price} | SL: {signal_data['sl']:.2f} | TP1: {signal_data['tp1']:.2f}")
             notify_trade_opened(symbol, side_cmd, price, amount, signal_data['sl'], signal_data['tp1'])
+            logger.info("📡 Đã gởi thông báo tới Discord.")
 
     def close_position(self, symbol, reason):
         positions = self.exchange.fetch_positions([symbol])
@@ -167,9 +201,16 @@ class TradingEngine:
         
         order = self.exchange.create_order(symbol, side_cmd, amount)
         if order:
-            logger.info(f"SMC EXIT: {symbol} - {reason}")
+            logger.info(f"🏁 TẤT TOÁN LỆNH: {symbol} - {reason}")
             if symbol in self.active_positions: del self.active_positions[symbol]
+            
+            # 🔧 SYNC FIX: Update dry-run positions file for dashboard
+            all_positions = self.exchange._load_dry_positions()
+            updated_positions = [p for p in all_positions if p['symbol'] != symbol]
+            self.exchange._save_dry_positions(updated_positions)
+            
             notify_trade_closed(symbol, 0, reason)
+            logger.info("📡 Đã gởi thông báo tới Discord.")
 
     def start(self):
         logger.info("Professional SMC Bot Active...")

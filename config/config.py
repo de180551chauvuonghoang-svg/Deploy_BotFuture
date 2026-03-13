@@ -11,21 +11,21 @@ class Config:
     
     # Bot Mode
     PAPER_TRADING = os.getenv('PAPER_TRADING', 'True').lower() == 'true'
+    INITIAL_DRY_BALANCE = float(os.getenv('INITIAL_DRY_BALANCE', 10000.0))
     
     # Trading Pairs
-    TRADING_PAIRS = os.getenv('TRADING_PAIRS', 'BTC/USDT').split(',')
+    TRADING_PAIRS = os.getenv('TRADING_PAIRS', 'BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT,AVAX/USDT,ADA/USDT,DOGE/USDT,LINK/USDT,DOT/USDT,NEAR/USDT,LTC/USDT,BCH/USDT,WIF/USDT,SUI/USDT,APT/USDT,FET/USDT,RENDER/USDT,INJ/USDT,OP/USDT,ARB/USDT,TIA/USDT,STX/USDT').split(',')
     
     # Risk Management
     LEVERAGE = int(os.getenv('LEVERAGE', 5))
     POSITION_SIZE_PCT = float(os.getenv('POSITION_SIZE_PERCENT', 2.0)) / 100
-    STOP_LOSS_PCT = float(os.getenv('STOP_LOSS_PERCENT', 1.5)) / 100
-    TAKE_PROFIT_PCT = float(os.getenv('TAKE_PROFIT_PERCENT', 3.0)) / 100
     
-    TRAILING_STOP_THRESHOLD = float(os.getenv('TRAILING_STOP_THRESHOLD', 1.5)) / 100
-    TRAILING_STOP_OFFSET = float(os.getenv('TRAILING_STOP_OFFSET', 0.5)) / 100
-    
-    MAX_DAILY_LOSS_PCT = float(os.getenv('MAX_DAILY_LOSS_PERCENT', 5.0)) / 100
-    MAX_DRAWDOWN_PCT = float(os.getenv('MAX_DRAWDOWN_PERCENT', 15.0)) / 100
+    # Professional SMC Management (Synced with Backtest)
+    MIN_SCORE_THRESHOLD = 8.5
+    MAX_DRAWDOWN_LIMIT = 0.25 # 25% Portfolio Hard Stop
+    RISK_LEVEL_1_DD = 0.15   # 15% DD -> Scale to 40%
+    RISK_LEVEL_2_DD = 0.20   # 20% DD -> Scale to 10%
+    RISK_LEVEL_3_DD = 0.24   # 24% DD -> Scale to 0%
     
     # Notifications
     DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
