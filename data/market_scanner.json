@@ -19,9 +19,9 @@
     "Symbol": "SOL/USDT",
     "Signal": "NONE",
     "Price": 0.0,
-    "Score": 4.5,
+    "Score": 4.0,
     "Regime": "TRENDING",
-    "Reason": "Quality score 4.5 too low (Min: 8.5)"
+    "Reason": "Quality score 4.0 too low (Min: 8.5)"
   },
   {
     "Symbol": "BNB/USDT",
@@ -35,9 +35,9 @@
     "Symbol": "XRP/USDT",
     "Signal": "NONE",
     "Price": 0.0,
-    "Score": 2.0,
+    "Score": 2.5,
     "Regime": "TRENDING",
-    "Reason": "Quality score 2.0 too low (Min: 8.5)"
+    "Reason": "Quality score 2.5 too low (Min: 8.5)"
   },
   {
     "Symbol": "AVAX/USDT",
