@@ -103,5 +103,24 @@
     "tp2_usd": 0,
     "tp3_usd": 0,
     "close_reason": "Manual/Target"
+  },
+  {
+    "symbol": "MOODENG/USDT",
+    "side": "long",
+    "entryPrice": 0.05716,
+    "exitPrice": 0.05325,
+    "amount": 23592.4386056144,
+    "pnl": -92.2464349479524,
+    "roi": -68.40447865640316,
+    "entryTime": "2026-03-14T04:05:47.076131Z",
+    "exitTime": "2026-03-14T08:04:00.694034",
+    "duration": "0 days 03:58:13.617903",
+    "tp1_time": "",
+    "tp2_time": "",
+    "tp3_time": "",
+    "tp1_usd": 0,
+    "tp2_usd": 0,
+    "tp3_usd": 0,
+    "close_reason": "Manual/Target"
   }
 ]

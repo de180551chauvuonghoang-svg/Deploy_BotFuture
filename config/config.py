@@ -22,6 +22,9 @@ class Config:
     
     # Professional SMC Management (Hybrid Sniper Optimization)
     MIN_SCORE_THRESHOLD = 8.0
+    BASE_RISK_PCT = 0.01      # Start with 1.0% risk per trade
+    MAX_RISK_PCT = 0.02       # Max 2.0% risk for A++ setups
+    
     MAX_DRAWDOWN_LIMIT = 0.25 # 25% Portfolio Hard Stop
     RISK_LEVEL_1_DD = 0.15   # 15% DD -> Scale to 40%
     RISK_LEVEL_2_DD = 0.20   # 20% DD -> Scale to 10%

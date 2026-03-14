@@ -17,34 +17,22 @@
     "realizedPnl": "22.88"
   },
   {
-    "symbol": "MOODENG/USDT",
-    "side": "long",
-    "entryPrice": "0.05716",
-    "entryTime": "2026-03-14T04:05:47.076131Z",
-    "contracts": "23592.4386056144",
-    "initialMargin": "134.8543790696919",
-    "leverage": "10",
-    "sl": 0.05333908726119585,
-    "tp1": 0.05812609528656497,
-    "tp2": 0.0631306945858145,
-    "tp3": null,
-    "unrealizedPnl": "0.00",
-    "realizedPnl": "0.00"
-  },
-  {
     "symbol": "XLM/USDT",
     "side": "long",
     "entryPrice": "0.1629",
     "entryTime": "2026-03-14T06:23:11.223158Z",
-    "contracts": "11920.295008244271",
+    "contracts": "7986.597655523661",
     "initialMargin": "194.18160568429917",
     "leverage": "10",
-    "sl": 0.16156606648185248,
+    "sl": 0.16256500000000002,
     "tp1": 0.16376372022177704,
     "tp2": 0.1660612673135164,
     "tp3": null,
     "unrealizedPnl": "0.00",
-    "realizedPnl": "0.00"
+    "realizedPnl": "3.8550234056662314",
+    "tp1_done": true,
+    "tp1_time": "11:44:47",
+    "tp1_usd": 5.17
   },
   {
     "symbol": "OXT/USDT",
@@ -63,5 +51,22 @@
     "tp1_done": true,
     "tp1_time": "06:57:15",
     "tp1_usd": 18.92
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "side": "short",
+    "entryPrice": "209.21",
+    "entryTime": "2026-03-14T14:13:40.795313Z",
+    "contracts": "5.843867615150293",
+    "initialMargin": "182.47694683068548",
+    "leverage": "10",
+    "sl": 211.04000000000002,
+    "tp1": 208.54591837998245,
+    "tp2": 203.76559527494877,
+    "unrealizedPnl": "0.00",
+    "realizedPnl": "1.9284763129996423",
+    "tp1_done": true,
+    "tp1_time": "14:33:39",
+    "tp1_usd": 7.2
   }
 ]

@@ -21,25 +21,32 @@ def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score):
     sl_dist_pct = abs(entry - sl) / entry
     if sl_dist_pct < 0.003: # Min 0.3%
         sl = entry * (1 - 0.003) if side == "LONG" else entry * (1 + 0.003)
-    elif sl_dist_pct > 0.04: # Increased Max 4.0%
+    elif sl_dist_pct > 0.08: # Professional cap: 8% (Reduced size will protect us)
         return None 
 
     sl_dist = abs(entry - sl)
 
-    # 2. Position Sizing (Sniper Elite Sizing)
-    risk_pct = 0.01 # Base 1.0%
-    if score >= 9.5: risk_pct = 0.06   # 6% for A++ setups
-    elif score >= 9.0: risk_pct = 0.05 # 5%
-    elif score >= 8.0: risk_pct = 0.04 # 4% for Hybrid Sniper
+    # 2. Position Sizing (Fixed Risk Per Trade Model)
+    from config.config import Config
+    
+    # Scale risk from 1.0% to 2.0% based on score
+    # 8.0 score -> 1.0% risk
+    # 10.0 score -> 2.0% risk
+    risk_pct = Config.BASE_RISK_PCT
+    if score >= 9.0:
+        over_threshold = (score - 8.0) / 2.0 # Scale from 0 to 1
+        risk_pct = Config.BASE_RISK_PCT + (over_threshold * (Config.MAX_RISK_PCT - Config.BASE_RISK_PCT))
     
     risk_amount = account_balance * risk_pct
     position_size = risk_amount / sl_dist if sl_dist > 0 else 0
 
-    # Limit per-trade margin to 15% of account balance (assuming 10x leverage)
-    # This prevents total margin from exceeding wallet balance easily
-    max_size = (account_balance * 1.5) / entry # 1.5x balance in size = 15% margin at 10x
-    if position_size > max_size:
-        position_size = max_size
+    # Limit per-trade margin to 10% of account balance
+    # This is a safety hard-cap to prevent over-leveraging
+    max_margin_usd = account_balance * 0.10
+    max_size_by_margin = (max_margin_usd * Config.LEVERAGE) / entry
+    
+    if position_size > max_size_by_margin:
+        position_size = max_size_by_margin
 
     # 3. Take Profit (Sniper Sniper Targets: 1.2R / 3.5R / 7.0R)
     tp1 = entry + (sl_dist * 1.2) if side == "LONG" else entry - (sl_dist * 1.2)
