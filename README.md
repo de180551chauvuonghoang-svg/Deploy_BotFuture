@@ -1,42 +1,48 @@
-# 🚀 Advanced SMC Trading Bot v2.0 - Sniper Elite Edition
+# 🚀 Advanced SMC Crypto Futures Trading Bot
 
-Hệ thống giao dịch tự động AI dựa trên phương pháp **Smart Money Concepts (SMC)** được tối ưu hóa cho thị trường Crypto Futures trên sàn Binance. Bot sử dụng mô hình đa khung thời gian (MTF) để xác định xu hướng dòng tiền lớn và thực hiện các lệnh Sniper với tỷ lệ R/R cực cao.
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Strategy: SMC](https://img.shields.io/badge/Strategy-Smart%20Money%20Concepts-green.svg)]()
+[![Backtest: 111.79%](https://img.shields.io/badge/Backtest-111.79%25%20PnL-brightgreen.svg)]()
 
-## 📈 Kết quả Backtest Danh mục (90 Ngày Gần Nhất)
-> [!IMPORTANT]
-> Đây là kết quả test thực tế trên **100+ cặp coin** với các thông số trượt giá (0.1%) và phí giao dịch (0.04%) sát với thực tế.
-
-- **Vốn ban đầu**: 1,300 USDT
-- **Số dư cuối**: **2,943.47 USDT**
-- **Lợi nhuận ròng**: `+1,643.47 USDT` (**+126.42%**)
-- **Tỷ lệ thắng (Win Rate)**: **67.19%**
-- **Sụt giảm tài khoản tối đa (Max DD)**: **11.40%**
-- **Profit Factor**: **4.28**
+A professional-grade, multi-timeframe cryptocurrency futures bot implementing **Smart Money Concepts (SMC)** logic. Designed for high-conviction trades with institutional-level risk management.
 
 ---
 
-## 🛡️ Chiến thuật Giao dịch & Quản trị Rủi ro
+## 💎 Strategy Engine: Smart Money Concepts (SMC)
 
-Hệ thống hiện tại là sự kết hợp giữa **Phân tích kỹ thuật chuyên sâu** và **Logic quản trị vốn chủ động**:
+Our bot doesn't just follow simple indicators; it decodes market structure like a pro:
 
-### 1. Phân tích Đa khung thời gian (MTF Strategy)
-*   **4H Trend (Macro)**: Sử dụng cấu hình Market Structure (BOS/CHOCH) cùng EMA 200 để xác định thiên hướng (Bias). Chỉ giao dịch thuận xu hướng lớn.
-*   **1H Zone (Execution)**: Tìm kiếm các vùng mất cân bằng thanh khoản **Fair Value Gap (FVG)** và các khối lệnh **Order Block (OB)** để xác định điểm entry tối ưu.
-*   **15M Sniper**: Dùng để lọc nhiễu, xác nhận lực mua/bán và kiểm tra **Liquidity Sweep** (quét thanh khoản) trước khi mở lệnh.
+- **Multi-Timeframe Analysis**: Macro bias on **4H**, structure on **1H**, and entries/sweeps on **15M**.
+- **Order Blocks (OB)**: Detects institutional zones where massive buy/sell orders are expected.
+- **Fair Value Gaps (FVG)**: Identifies liquidity imbalances that price often seeks to fill.
+- **Liquidity Sweeps**: Detects "Stop Hunts" to enter after retail traders are flushed out.
+- **SMC Quality Score**: Each setup is scored (1-10) based on confluence.
 
-### 2. Quản trị lệnh thông minh (Smart Exit Logic)
-Bot không giữ lệnh cố định mà chủ động quản lý rủi ro ngay khi lệnh đang chạy:
-*   **Chốt lời 3 phần**: 
-    *   **TP1 (33%)**: Khóa lợi nhuận sớm để bảo vệ tâm lý.
-    *   **TP2 (33%)**: Chốt lời chính tại vùng cản 1H.
-    *   **TP3 (34%)**: Gồng Moonshot cho các đợt bùng nổ mạnh.
-*   **Break-even**: Ngay khi giá chạm TP1, Stop Loss sẽ được dời về giá vào lệnh (Entry Price) để đảm bảo lệnh trở nên "Không rủi ro".
-*   **Trailing Stop (ATR)**: Sử dụng ATR (biến động thực tế) để bám theo xu hướng, khóa thêm lợi nhuận nếu giá tiếp tục đi lên mà chưa tới TP2/TP3.
+---
 
-### 3. Cơ chế Chống ngâm lệnh (Anti-Stuck Mechanism)
-Giải quyết vấn đề kẹt vốn và phí funding fee:
-*   **Hard Time-Stop (48h)**: Tự động đóng lệnh sau 2 ngày nếu giá không đạt mục tiêu để giải phóng vốn.
-*   **Stagnation Exit (12h)**: Nếu giá đi ngang trong 12 giờ quanh Entry (+/- 0.5%), Bot sẽ tự động cắt lệnh vì setup này đã mất xung lực.
+## 📈 Backtest Performance (Live-Trader Mock)
+
+| Metric              | Portfolio Result (700 Days)     |
+| :------------------ | :------------------------------ |
+| **Duration**        | 700 Days (Last ~2 Years)        |
+| **Initial Capital** | 10,000 USDT                     |
+| **Net Profit**      | **+11,179.50 USDT (+111.79%)**  |
+| **Win Rate**        | 50.58% (High-precision entries) |
+| **Profit Factor**   | 1.85+                           |
+| **Max Drawdown**    | 21.20%                          |
+| **Symbols**         | BTC, ETH, SOL, BNB, XRP, AVAX   |
+
+---
+
+## 📊 Dynamic Control Dashboard
+
+The bot comes with a premium **Streamlit** dashboard for monitoring and manual control:
+
+- **Real-time Metrics**: Track Account Balance, Active Positions, and Unrealized PnL.
+- **Active Management**: View SL/TP targets and close positions with a single click.
+- **Market Hub**: Visual charts for SMC structures (OB/FVG) and signal scores.
+- **Financial Reports**: Export your trade history and performance metrics to **Excel**.
 
 ---
 
