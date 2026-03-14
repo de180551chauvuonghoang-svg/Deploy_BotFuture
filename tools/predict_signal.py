@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pandas_ta as ta
 
 # Add project root to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.config import Config
 from core.exchange import ExchangeHandler

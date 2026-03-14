@@ -1,6 +1,11 @@
 import pandas as pd
 import numpy as np
+import os
+import sys
 from datetime import datetime
+
+# Add project root to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load both backtest trades CSVs
 print("=" * 80)
@@ -12,7 +17,7 @@ print()
 print("1️⃣  STANDARD STRATEGY (backtest_trades.csv)")
 print("-" * 80)
 try:
-    df = pd.read_csv(r'backtest_trades.csv')
+    df = pd.read_csv(r'../backtest/reports/backtest_trades.csv')
     
     total_trades = len(df)
     winning_trades = len(df[df['pnl'] > 0])
@@ -68,7 +73,7 @@ except Exception as e:
 print("2️⃣  HARD STOP STRATEGY (backtest_trades_hardstop.csv)")
 print("-" * 80)
 try:
-    df_hs = pd.read_csv(r'backtest_trades_hardstop.csv')
+    df_hs = pd.read_csv(r'../backtest/reports/backtest_trades_hardstop.csv')
     
     total_trades_hs = len(df_hs)
     winning_trades_hs = len(df_hs[df_hs['pnl'] > 0])

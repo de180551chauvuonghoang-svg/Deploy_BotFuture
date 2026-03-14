@@ -12,7 +12,7 @@ from pathlib import Path
 
 def read_latest_scan():
     """Đọc dữ liệu quét mới nhất từ market_scanner.json"""
-    scanner_file = Path('data/market_scanner.json')
+    scanner_file = Path('../data/market_scanner.json')
     if not scanner_file.exists():
         return None
     
@@ -24,7 +24,7 @@ def read_latest_scan():
 
 def read_bot_logs():
     """Đọc logs từ terminal để lấy thông tin quét"""
-    log_file = Path('trading.log')
+    log_file = Path('../logs/trading.log')
     if not log_file.exists():
         return []
     

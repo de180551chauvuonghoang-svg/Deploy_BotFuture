@@ -3,7 +3,7 @@ import numpy as np
 
 def analyze_backtest():
     try:
-        df = pd.read_csv("backtest_trades.csv")
+        df = pd.read_csv("../backtest/reports/backtest_trades.csv")
     except:
         print("Could not find backtest_trades.csv")
         return

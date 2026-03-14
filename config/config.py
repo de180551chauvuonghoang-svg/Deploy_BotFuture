@@ -39,7 +39,7 @@ class Config:
     
     # Paths
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    LOG_FILE = os.path.join(BASE_DIR, 'trading.log')
+    LOG_FILE = os.path.join(BASE_DIR, 'logs', 'trading.log')
     DATA_DIR = os.path.join(BASE_DIR, 'data')
 
 if not os.path.exists(Config.DATA_DIR):
