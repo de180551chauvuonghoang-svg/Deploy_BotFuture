@@ -27,16 +27,17 @@ def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score):
     sl_dist = abs(entry - sl)
 
     # 2. Position Sizing (Sniper Elite Sizing)
-    risk_pct = 0.005 # Base 0.5%
-    if score >= 9.5: risk_pct = 0.055   # 5.5% for A++ setups
-    elif score >= 9.0: risk_pct = 0.045 # 4.5%
-    elif score >= 8.5: risk_pct = 0.035 # 3.5%
+    risk_pct = 0.01 # Base 1.0%
+    if score >= 9.5: risk_pct = 0.06   # 6% for A++ setups
+    elif score >= 9.0: risk_pct = 0.05 # 5%
+    elif score >= 8.0: risk_pct = 0.04 # 4% for Hybrid Sniper
     
     risk_amount = account_balance * risk_pct
     position_size = risk_amount / sl_dist if sl_dist > 0 else 0
 
-    # Limit per-trade leverage to 2.0x (Professional mandate)
-    max_size = (account_balance * 2.0) / entry
+    # Limit per-trade margin to 15% of account balance (assuming 10x leverage)
+    # This prevents total margin from exceeding wallet balance easily
+    max_size = (account_balance * 1.5) / entry # 1.5x balance in size = 15% margin at 10x
     if position_size > max_size:
         position_size = max_size
 

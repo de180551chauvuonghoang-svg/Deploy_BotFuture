@@ -109,6 +109,7 @@ class SMCStrategy:
             "tp2": risk_data["tp2"],
             "tp3": risk_data["tp3"],
             "size": risk_data["size"],
+            "atr": atr_15m,
             "score": score,
             "confluences": confluences,
             "reason": f"SMC {bias} Setup | Regime: {regime} | Score: {score:.1f}"

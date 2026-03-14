@@ -7,6 +7,7 @@ import warnings
 import os
 import time
 from backtest.data import fetch_historical_data
+from config.config import Config
 from strategy.smc_strategy import SMCStrategy
 from datetime import datetime
 import numpy as np
@@ -256,11 +257,11 @@ class PortfolioBacktester:
                        (sigs['bias'] == "SHORT" and sigs['px'] > ema_1h):
                         continue
                     
-                    if score < 8.5: # Extreme Sniper Filtering for Win Rate >55%
+                    if score < 8.0: # Hybrid Sniper Sweet Spot
                         self.rejection_reasons['low_score'] += 1
                         continue
                                       # 3. Dynamic High-Conviction Risk (Aimed at $3k-$5k profit target)
-                    # ENTRY OPTIMIZATION: Enter at 50% Equilibrium of the OB for higher R/R and Win Rate
+                    # ENTRY OPTIMIZATION: Enter at 50% Equilibrium (Re-optimized for R/R)
                     if sigs['ob_hit']:
                         entry_px = (sigs['ob_hit']['top'] + sigs['ob_hit']['bottom']) / 2
                     else:
@@ -324,38 +325,56 @@ class PortfolioBacktester:
         self.active_positions.append(new_pos)
 
     def _check_exit(self, row, pos):
-        high, low = row['high'], row['low']
+        high, low, close = row['high'], row['low'], row['close']
+        ts = row.name
         
-        # 1. SL Check FIRST (Conservative: SL always hits before TP in the same bar)
-        if (pos['side'] == 'LONG' and low <= pos['sl']) or (pos['side'] == 'SHORT' and high >= pos['sl']):
-            reason = "STOP_LOSS" if not pos['tp1_hit'] else "BE_STOP"
-            self._close_partial(pos, pos['sl'], row.name, reason, pos['size'])
+        # 0. 🕒 TIME-LIMIT & STAGNATION CHECK (Anti-Stuck)
+        entry_time = pd.to_datetime(pos['entry_time'])
+        now_ts = pd.to_datetime(ts)
+        held_hours = (now_ts - entry_time).total_seconds() / 3600
+
+        # 1. Hard Time Stop (48h)
+        if held_hours >= Config.MAX_HOLDING_HOURS:
+            self._close_partial(pos, close, ts, f"TIME_STOP_{Config.MAX_HOLDING_HOURS}H", pos['size'])
             return True
 
-        # 2. Professional TP1 (Sniper: Close 75% at 1.5R to secure winrate)
+        # 2. Stagnation Check (12h near entry)
+        if held_hours >= Config.TRADE_STAGNANT_HOURS:
+            price_dev = abs(close - pos['entry_price']) / pos['entry_price']
+            if price_dev < 0.005:
+                self._close_partial(pos, close, ts, "STAGNATION_EXIT", pos['size'])
+                return True
+
+        # 3. SL Check (Conservative: SL always hits before TP in the same bar)
+        if (pos['side'] == 'LONG' and low <= pos['sl']) or (pos['side'] == 'SHORT' and high >= pos['sl']):
+            reason = "STOP_LOSS" if not pos['tp1_hit'] else "TRAILING_STOP"
+            self._close_partial(pos, pos['sl'], ts, reason, pos['size'])
+            return True
+
+        # 4. Professional TP1 (Close 33%)
         if not pos['tp1_hit']:
             if (pos['side'] == 'LONG' and high >= pos['tp1']) or (pos['side'] == 'SHORT' and low <= pos['tp1']):
                 pos['tp1_hit'] = True
-                close_amount = pos['initial_size'] * 0.80 # Lock 80% at TP1 for safety/winrate
-                self._close_partial(pos, pos['tp1'], row.name, "TP1_80%", close_amount)
+                close_amount = pos['size'] * 0.33
+                self._close_partial(pos, pos['tp1'], ts, "TP1_33%", close_amount)
                 pos['size'] -= close_amount
                 pos['sl'] = pos['entry_price'] # Move to Breakeven
                 return False
 
-        # 3. TP2 Check (10%)
+        # 5. TP2 Check (Close 50% of remainder = ~33% of initial)
         elif not pos['tp2_hit']:
             if (pos['side'] == 'LONG' and high >= pos['tp2']) or (pos['side'] == 'SHORT' and low <= pos['tp2']):
                 pos['tp2_hit'] = True
-                close_amount = pos['initial_size'] * 0.05
-                self._close_partial(pos, pos['tp2'], row.name, "TP2_5%", close_amount)
+                close_amount = pos['size'] * 0.50
+                self._close_partial(pos, pos['tp2'], ts, "TP2_33%", close_amount)
                 pos['size'] -= close_amount
                 pos['sl'] = pos['tp1'] # Lock profit at TP1
                 return False
 
-        # 4. TP3 / Moonshot Target (Final ~5%)
+        # 6. TP3 / Moonshot Target (Final ~34%)
         elif pos['tp2_hit']:
             if (pos['side'] == 'LONG' and high >= pos['tp3']) or (pos['side'] == 'SHORT' and low <= pos['tp3']):
-                self._close_partial(pos, pos['tp3'], row.name, "TP3_FULL", pos['size'])
+                self._close_partial(pos, pos['tp3'], ts, "TP3_FULL", pos['size'])
                 return True
             
         return False
@@ -480,12 +499,7 @@ Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         return report
 
 def main():
-    symbols = [
-        'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT', 'AVAX/USDT',
-        'ADA/USDT', 'DOGE/USDT', 'LINK/USDT', 'DOT/USDT', 'NEAR/USDT', 'LTC/USDT',
-        'BCH/USDT', 'SHIB/USDT', 'PEPE/USDT', 'WIF/USDT', 'SUI/USDT', 'APT/USDT',
-        'FET/USDT', 'RENDER/USDT', 'INJ/USDT', 'OP/USDT', 'ARB/USDT', 'TIA/USDT', 'STX/USDT'
-    ]
+    symbols = Config.TRADING_PAIRS # Use the expanded list from config
     days = 90
     exchange = ccxt.binance({'options': {'defaultType': 'future'}})
     strategy = SMCStrategy()

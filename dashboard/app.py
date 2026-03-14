@@ -69,31 +69,35 @@ def show_realtime_data():
     positions = exchange.fetch_positions(Config.TRADING_PAIRS)
     initial_balance = exchange.get_balance()
     
-    # Calculate real-time Account Balance
+    # Calculate real-time Metrics
+    wallet_balance = initial_balance
     total_margin_used = sum(float(p.get('initialMargin', 0)) for p in positions)
     total_upnl = sum(float(p.get('unrealizedPnl', 0)) for p in positions)
-    available_balance = initial_balance - total_margin_used
-    realtime_balance = available_balance + total_upnl
+    equity = wallet_balance + total_upnl
+    available_balance = equity - total_margin_used
     
     col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-    col_stat1.metric("Account Balance", f"{realtime_balance:,.2f} USDT", delta=total_upnl, delta_color="normal")
-    col_stat2.metric("Active Positions", len(positions))
-    
-    col_stat3.metric("Unrealized PnL", f"{total_upnl:,.2f} USDT", delta_color="normal")
-    col_stat4.metric("Status", "🟢 Running" if exchange.dry_run or exchange.exchange.api_key else "🔴 Error")
+    col_stat1.metric("Total Equity", f"{equity:,.2f} USDT", delta=total_upnl)
+    col_stat2.metric("Wallet Balance", f"{wallet_balance:,.2f} USDT")
+    col_stat3.metric("Unrealized PnL", f"{total_upnl:,.2f} USDT")
+    col_stat4.metric("Available (to Trade)", f"{max(0, available_balance):,.2f} USDT", 
+                   delta=None if available_balance >= 0 else f"{available_balance:.2f}", delta_color="inverse")
 
     # Show balance breakdown
     with st.expander("💰 Balance Breakdown", expanded=True):
         bal_col1, bal_col2, bal_col3 = st.columns(3)
-        bal_col1.metric("Initial Capital", f"{initial_balance:,.2f} USDT")
-        bal_col2.metric("Total Margin Used", f"-{total_margin_used:,.2f} USDT", delta_color="off")
-        bal_col3.metric("Available Balance", f"{available_balance:,.2f} USDT")
+        bal_col1.metric("Wallet Balance", f"{wallet_balance:,.2f} USDT")
+        bal_col2.metric("Total Margin Used", f"{total_margin_used:,.2f} USDT")
+        bal_col3.metric("Equity (Total Value)", f"{equity:,.2f} USDT")
+        
+        if available_balance < 0:
+             st.warning(f"⚠️ **Tài khoản đang bị quá tải ký quỹ (Over-margined)!** Số vốn {wallet_balance} USDT không đủ để duy trì {len(positions)} lệnh với đòn bẩy hiện tại. Số dư khả dụng thực tế đang bị âm ({available_balance:.2f} USDT).")
         
         st.divider()
         
         bal_col_a, bal_col_b = st.columns(2)
-        bal_col_a.metric("Available Balance", f"{available_balance:,.2f} USDT")
-        bal_col_b.metric("+ Unrealized PnL", f"{total_upnl:,.2f} USDT", delta_color="normal")
+        bal_col_a.metric("Available Balance", f"{max(0, available_balance):,.2f} USDT")
+        bal_col_b.metric("+ Unrealized PnL", f"{total_upnl:,.2f} USDT")
 
     st.header("⚡ Active Trading Positions")
     
@@ -105,49 +109,81 @@ def show_realtime_data():
             margin = float(pos.get('initialMargin', 0))
             roi = (upnl / margin * 100) if margin > 0 else 0
             leverage = pos.get('leverage', '10')
+            # Prepare status indicators
+            tp1_done = pos.get('tp1_done', False)
+            tp1_style = "text-decoration: line-through; opacity: 0.5;" if tp1_done else ""
+            tp1_check = "✅" if tp1_done else ""
+            
+            tp2_done = pos.get('tp2_done', False)
+            tp2_style = "text-decoration: line-through; opacity: 0.5;" if tp2_done else ""
+            tp2_check = "✅" if tp2_done else ""
+
+            # Calculate Projected PnLs
+            contracts = float(pos['contracts'])
+            entry_px = float(pos['entryPrice'])
+            mult = 1 if side == "LONG" else -1
+            
+            sl_pnl = (float(pos.get('sl', 0)) - entry_px) * contracts * mult
+            tp1_pnl = (float(pos.get('tp1', 0)) - entry_px) * contracts * mult
+            tp2_pnl = (float(pos.get('tp2', 0)) - entry_px) * contracts * mult
+            tp3_pnl = (float(pos.get('tp3', 0)) - entry_px) * contracts * mult
             
             st.markdown(f"""
-            <div style="border-left: 5px solid {color}; padding: 15px; border-radius: 5px; margin-bottom: 5px; background-color: rgba(255,255,255,0.05);">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <span style="font-size: 20px; font-weight: bold; color: {color};">{pos['symbol']}</span>
-                        <span style="background-color: {color}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 10px;">{side} {leverage}x</span>
-                    </div>
-                    <div style="text-align: right;">
-                        <p style="margin: 0; color: #848e9c; font-size: 14px;">Unrealized PnL (USDT)</p>
-                        <p style="margin: 0; font-size: 20px; font-weight: bold; color: {'#2ebd85' if upnl >= 0 else '#f6465d'};">
-                            {upnl:+.2f} ({roi:+.2f}%)
-                        </p>
-                    </div>
-                </div>
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 15px;">
-                    <div>
-                        <p style="margin: 0; color: #848e9c; font-size: 13px;">Size</p>
-                        <p style="margin: 0; font-weight: 500;">{pos['contracts']}</p>
-                    </div>
-                    <div>
-                        <p style="margin: 0; color: #848e9c; font-size: 13px;">Entry Price</p>
-                        <p style="margin: 0; font-weight: 500;">{float(pos['entryPrice']):,.4f}</p>
-                    </div>
-                    <div>
-                        <p style="margin: 0; color: #848e9c; font-size: 13px;">Target TP1</p>
-                        <p style="margin: 0; font-weight: 500; color: #2ebd85;">{float(pos.get('tp1', 0)):,.4f}</p>
-                    </div>
-                    <div>
-                        <p style="margin: 0; color: #848e9c; font-size: 13px;">Stop Loss</p>
-                        <p style="margin: 0; font-weight: 500; color: #f6465d;">{float(pos.get('sl', 0)):,.4f}</p>
-                    </div>
-                    <div>
-                        <p style="margin: 0; color: #848e9c; font-size: 13px;">Mark Price</p>
-                        <p style="margin: 0; font-weight: 500;">{float(pos.get('markPrice', pos['entryPrice'])):,.4f}</p>
-                    </div>
-                    <div>
-                        <p style="margin: 0; color: #848e9c; font-size: 13px;">Margin</p>
-                        <p style="margin: 0; font-weight: 500;">{margin:,.2f} USDT</p>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+<div style="border-left: 5px solid {color}; padding: 15px; border-radius: 5px; margin-bottom: 10px; background-color: rgba(255,255,255,0.05);">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <span style="font-size: 20px; font-weight: bold; color: {color};">{pos['symbol']}</span>
+            <span style="background-color: {color}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 10px;">{side} {leverage}x</span>
+        </div>
+        <div style="text-align: right;">
+            <p style="margin: 0; color: #848e9c; font-size: 14px;">Unrealized PnL (USDT)</p>
+            <p style="margin: 0; font-size: 20px; font-weight: bold; color: {'#2ebd85' if upnl >= 0 else '#f6465d'};">
+                {upnl:+.2f} ({roi:+.2f}%)
+            </p>
+        </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 15px;">
+        <div>
+            <p style="margin: 0; color: #848e9c; font-size: 13px;">Size</p>
+            <p style="margin: 0; font-weight: 500;">{contracts:.4f}</p>
+        </div>
+        <div>
+            <p style="margin: 0; color: #848e9c; font-size: 13px;">Entry Price</p>
+            <p style="margin: 0; font-weight: 500;">{entry_px:,.4f}</p>
+        </div>
+        <div>
+            <p style="margin: 0; color: #848e9c; font-size: 13px;">Mark Price</p>
+            <p style="margin: 0; font-weight: 500; color: #f0b90b;">{float(pos.get('markPrice', entry_px)):,.4f}</p>
+        </div>
+        <div>
+            <p style="margin: 0; color: #848e9c; font-size: 13px;">Margin</p>
+            <p style="margin: 0; font-weight: 500;">{margin:,.2f} USDT</p>
+        </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 15px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
+        <div>
+            <p style="margin: 0; color: #848e9c; font-size: 13px;">Stop Loss</p>
+            <p style="margin: 0; font-weight: 500; color: #f6465d;">{float(pos.get('sl', 0)):,.4f}</p>
+            <p style="margin: 0; font-size: 11px; color: #f6465d; opacity: 0.8;">Est: {sl_pnl:+.2f} USDT</p>
+        </div>
+        <div>
+            <p style="margin: 0; color: #848e9c; font-size: 13px;">TP1 (Target)</p>
+            <p style="margin: 0; font-weight: 500; color: #2ebd85; {tp1_style}">{float(pos.get('tp1', 0)):,.4f} {tp1_check}</p>
+            <p style="margin: 0; font-size: 11px; color: #2ebd85; opacity: 0.8; {tp1_style}">Est: {tp1_pnl:+.2f} USDT</p>
+        </div>
+        <div>
+            <p style="margin: 0; color: #848e9c; font-size: 13px;">TP2</p>
+            <p style="margin: 0; font-weight: 500; color: #2ebd85; {tp2_style}">{float(pos.get('tp2', 0)):,.4f} {tp2_check}</p>
+            <p style="margin: 0; font-size: 11px; color: #2ebd85; opacity: 0.8; {tp2_style}">Est: {tp2_pnl:+.2f} USDT</p>
+        </div>
+        <div>
+            <p style="margin: 0; color: #848e9c; font-size: 13px;">TP3 (Moon)</p>
+            <p style="margin: 0; font-weight: 500; color: #2ebd85;">{float(pos.get('tp3', 0)):,.4f}</p>
+            <p style="margin: 0; font-size: 11px; color: #2ebd85; opacity: 0.8;">Est: {tp3_pnl:+.2f} USDT</p>
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
             
             # 1. Row for Chart Action
             col_btn1, col_btn2 = st.columns([3, 1])

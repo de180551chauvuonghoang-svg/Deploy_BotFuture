@@ -117,17 +117,26 @@ class ExchangeHandler:
                         existing['contracts'] = str(new_contracts)
                 else:
                     # New Long
+                    margin_required = (price * amount) / Config.LEVERAGE
+                    # Check available balance
+                    current_bal = self.get_balance()
+                    total_margin = sum(float(p.get('initialMargin', 0)) for p in positions)
+                    if (current_bal - total_margin) < margin_required:
+                        logger.warning(f"[DRY RUN] Insufficient balance for {symbol}. Required: {margin_required:.2f}, Available: {current_bal - total_margin:.2f}")
+                        return {'id': 'insufficient_funds', 'status': 'rejected'}
+
                     positions.append({
                         'symbol': symbol,
                         'side': 'long',
                         'entryPrice': str(price),
-                        'entryTime': pd.Timestamp.utcnow().isoformat() + "Z",
+                        'entryTime': pd.Timestamp.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
                         'contracts': str(amount),
-                        'initialMargin': str((price * amount) / 10),
-                        'leverage': '10',
+                        'initialMargin': str(margin_required),
+                        'leverage': str(Config.LEVERAGE),
                         'sl': kwargs.get('sl'),
                         'tp1': kwargs.get('tp1'),
                         'tp2': kwargs.get('tp2'),
+                        'tp3': kwargs.get('tp3'),
                         'unrealizedPnl': '0.00'
                     })
             else: # sell
@@ -147,14 +156,22 @@ class ExchangeHandler:
                         existing['contracts'] = str(new_contracts)
                 else:
                     # New Short
+                    margin_required = (price * amount) / Config.LEVERAGE
+                    # Check available balance
+                    current_bal = self.get_balance()
+                    total_margin = sum(float(p.get('initialMargin', 0)) for p in positions)
+                    if (current_bal - total_margin) < margin_required:
+                        logger.warning(f"[DRY RUN] Insufficient balance for {symbol}. Required: {margin_required:.2f}, Available: {current_bal - total_margin:.2f}")
+                        return {'id': 'insufficient_funds', 'status': 'rejected'}
+
                     positions.append({
                         'symbol': symbol,
                         'side': 'short',
                         'entryPrice': str(price),
-                        'entryTime': pd.Timestamp.utcnow().isoformat() + "Z",
+                        'entryTime': pd.Timestamp.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
                         'contracts': str(amount),
-                        'initialMargin': str((price * amount) / 10),
-                        'leverage': '10',
+                        'initialMargin': str(margin_required),
+                        'leverage': str(Config.LEVERAGE),
                         'sl': kwargs.get('sl'),
                         'tp1': kwargs.get('tp1'),
                         'tp2': kwargs.get('tp2'),
@@ -252,3 +269,16 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"Error fetching ticker for {symbol}: {e}")
             return None
+
+    def update_position_metadata(self, symbol, updates):
+        """
+        Updates metadata (like SL, TP status) for an existing dry-run position.
+        """
+        if not self.dry_run: return
+        
+        positions = self._load_dry_positions()
+        for pos in positions:
+            if pos['symbol'] == symbol:
+                pos.update(updates)
+                break
+        self._save_dry_positions(positions)
