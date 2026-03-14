@@ -22,6 +22,13 @@ from core.exchange import ExchangeHandler
 st.set_page_config(page_title="Trading Bot Dashboard", layout="wide", page_icon="📊")
 
 # Initialize Session State
+def safe_float(val, default=0.0):
+    try:
+        if val is None: return default
+        return float(val)
+    except:
+        return default
+
 if 'selected_symbol' not in st.session_state:
     st.session_state.selected_symbol = Config.TRADING_PAIRS[0]
 
@@ -111,22 +118,24 @@ def show_realtime_data():
             leverage = pos.get('leverage', '10')
             # Prepare status indicators
             tp1_done = pos.get('tp1_done', False)
+            tp1_time = pos.get('tp1_time', "")
             tp1_style = "text-decoration: line-through; opacity: 0.5;" if tp1_done else ""
-            tp1_check = "✅" if tp1_done else ""
+            tp1_check = f"✅ ({tp1_time})" if tp1_done else ""
             
             tp2_done = pos.get('tp2_done', False)
+            tp2_time = pos.get('tp2_time', "")
             tp2_style = "text-decoration: line-through; opacity: 0.5;" if tp2_done else ""
-            tp2_check = "✅" if tp2_done else ""
+            tp2_check = f"✅ ({tp2_time})" if tp2_done else ""
 
             # Calculate Projected PnLs
             contracts = float(pos['contracts'])
             entry_px = float(pos['entryPrice'])
             mult = 1 if side == "LONG" else -1
             
-            sl_pnl = (float(pos.get('sl', 0)) - entry_px) * contracts * mult
-            tp1_pnl = (float(pos.get('tp1', 0)) - entry_px) * contracts * mult
-            tp2_pnl = (float(pos.get('tp2', 0)) - entry_px) * contracts * mult
-            tp3_pnl = (float(pos.get('tp3', 0)) - entry_px) * contracts * mult
+            sl_pnl = (safe_float(pos.get('sl')) - entry_px) * contracts * mult
+            tp1_pnl = (safe_float(pos.get('tp1')) - entry_px) * contracts * mult
+            tp2_pnl = (safe_float(pos.get('tp2')) - entry_px) * contracts * mult
+            tp3_pnl = (safe_float(pos.get('tp3')) - entry_px) * contracts * mult
             
             st.markdown(f"""
 <div style="border-left: 5px solid {color}; padding: 15px; border-radius: 5px; margin-bottom: 10px; background-color: rgba(255,255,255,0.05);">
@@ -163,22 +172,22 @@ def show_realtime_data():
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 15px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1);">
         <div>
             <p style="margin: 0; color: #848e9c; font-size: 13px;">Stop Loss</p>
-            <p style="margin: 0; font-weight: 500; color: #f6465d;">{float(pos.get('sl', 0)):,.4f}</p>
+            <p style="margin: 0; font-weight: 500; color: #f6465d;">{safe_float(pos.get('sl')):,.6f}</p>
             <p style="margin: 0; font-size: 11px; color: #f6465d; opacity: 0.8;">Est: {sl_pnl:+.2f} USDT</p>
         </div>
         <div>
             <p style="margin: 0; color: #848e9c; font-size: 13px;">TP1 (Target)</p>
-            <p style="margin: 0; font-weight: 500; color: #2ebd85; {tp1_style}">{float(pos.get('tp1', 0)):,.4f} {tp1_check}</p>
+            <p style="margin: 0; font-weight: 500; color: #2ebd85; {tp1_style}">{safe_float(pos.get('tp1')):,.6f} {tp1_check}</p>
             <p style="margin: 0; font-size: 11px; color: #2ebd85; opacity: 0.8; {tp1_style}">Est: {tp1_pnl:+.2f} USDT</p>
         </div>
         <div>
             <p style="margin: 0; color: #848e9c; font-size: 13px;">TP2</p>
-            <p style="margin: 0; font-weight: 500; color: #2ebd85; {tp2_style}">{float(pos.get('tp2', 0)):,.4f} {tp2_check}</p>
+            <p style="margin: 0; font-weight: 500; color: #2ebd85; {tp2_style}">{safe_float(pos.get('tp2')):,.6f} {tp2_check}</p>
             <p style="margin: 0; font-size: 11px; color: #2ebd85; opacity: 0.8; {tp2_style}">Est: {tp2_pnl:+.2f} USDT</p>
         </div>
         <div>
             <p style="margin: 0; color: #848e9c; font-size: 13px;">TP3 (Moon)</p>
-            <p style="margin: 0; font-weight: 500; color: #2ebd85;">{float(pos.get('tp3', 0)):,.4f}</p>
+            <p style="margin: 0; font-weight: 500; color: #2ebd85;">{safe_float(pos.get('tp3')):,.6f}</p>
             <p style="margin: 0; font-size: 11px; color: #2ebd85; opacity: 0.8;">Est: {tp3_pnl:+.2f} USDT</p>
         </div>
     </div>
@@ -438,6 +447,28 @@ with tab2:
                 return "N/A"
             hist_df['duration'] = hist_df.apply(calc_duration, axis=1)
 
+        # Merging PnL and ROI for professional display
+        def format_pnl_roi(row):
+            pnl = row['pnl']
+            roi = row['roi']
+            color = "#2ebd85" if pnl >= 0 else "#f6465d"
+            return f"{pnl:+.2f} ({roi:+.2f}%)"
+        
+        hist_df['PnL (ROI)'] = hist_df.apply(format_pnl_roi, axis=1)
+
+        # Build Execution Details
+        def format_execution(row):
+            parts = []
+            if row.get('tp1_time'): parts.append(f"TP1:{row['tp1_time']}")
+            if row.get('tp2_time'): parts.append(f"TP2:{row['tp2_time']}")
+            if row.get('tp3_time'): parts.append(f"TP3:{row['tp3_time']}")
+            
+            reason = row.get('close_reason', 'N/A')
+            parts.append(f"Final:{reason}")
+            return " | ".join(parts)
+        
+        hist_df['Execution Details'] = hist_df.apply(format_execution, axis=1)
+
         # Calculate Entry Cost (Margin) for each trade
         if 'amount' in hist_df.columns and 'entryPrice' in hist_df.columns:
             # Entry Cost = (Amount * Price) / Leverage (Default 10)
@@ -447,6 +478,30 @@ with tab2:
         # Professional casing
         if 'side' in hist_df.columns:
             hist_df['side'] = hist_df['side'].str.upper()
+
+        # Prepare for Excel Export - Detailed Columns
+        excel_df = hist_df.copy()
+        
+        # Helper to format TP columns for Excel
+        def fmt_tp_excel(row, stage):
+            time_val = row.get(f'tp{stage}_time')
+            usd_val = row.get(f'tp{stage}_usd', 0)
+            if time_val:
+                return f"{time_val} (+{usd_val:.2f} USDT)"
+            return ""
+
+        excel_df[f'TP1 Details'] = excel_df.apply(lambda r: fmt_tp_excel(r, 1), axis=1)
+        excel_df[f'TP2 Details'] = excel_df.apply(lambda r: fmt_tp_excel(r, 2), axis=1)
+        excel_df[f'TP3 Details'] = excel_df.apply(lambda r: fmt_tp_excel(r, 3), axis=1)
+        
+        excel_cols = [
+            'symbol', 'side', 'pnl', 'roi', 'entryPrice', 'exitPrice', 
+            'amount', 'Entry Cost (USDT)', 'entryTime', 'exitTime', 'duration',
+            'TP1 Details', 'TP2 Details', 'TP3 Details', 'close_reason'
+        ]
+        # Only keep columns that actually exist to prevent errors
+        final_excel_cols = [c for c in excel_cols if c in excel_df.columns]
+        excel_export_df = excel_df[final_excel_cols]
 
         # Summary Stats
         total_trades = len(hist_df)
@@ -463,7 +518,7 @@ with tab2:
         # Excel Export with better Formatting
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            hist_df.to_excel(writer, index=False, sheet_name='TradeHistory')
+            excel_export_df.to_excel(writer, index=False, sheet_name='TradeHistory')
             # Summary sheet
             summary_data = {
                 "Metric": ["Total Trades", "Winning Trades", "Win Rate (%)", "Total PnL (USDT)", "Avg ROI (%)", "Avg Entry Cost (USDT)"],
@@ -494,7 +549,10 @@ with tab2:
         
         st.write("---")
         st.subheader("🕒 Recent Closed Trades (History)")
-        st.dataframe(hist_df.sort_values('exitTime', ascending=False).head(10), use_container_width=True)
+        # Reorder columns to show PnL (ROI) prominently
+        cols = ['symbol', 'side', 'PnL (ROI)', 'Execution Details', 'entryPrice', 'exitPrice', 'amount', 'entryTime', 'exitTime', 'duration', 'Entry Cost (USDT)']
+        display_df = hist_df[cols].copy()
+        st.dataframe(display_df.sort_values('exitTime', ascending=False).head(10), use_container_width=True)
     else:
         st.warning("📥 **No Trade History Recorded Yet.**")
         st.info("""

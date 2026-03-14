@@ -44,6 +44,10 @@ def pre_calc_symbol_worker(symbol, data):
     df_15m['rsi'] = ta.rsi(df_15m['close'], length=14)
     df_15m['vol_sma'] = df_15m['volume'].rolling(window=20).mean()
     
+    # 24h Volume Approximation (for 15m candles: 24*4 = 96 candles)
+    df_15m['vol_24h_usdt'] = (df_15m['volume'] * df_15m['close']).rolling(window=96).sum()
+    min_vol_filter = Config.MIN_24H_VOLUME_USDT
+    
     # B. Pre-calc Multi-TF States
     h4_biases = {}
     h1_regimes = {}
@@ -91,9 +95,12 @@ def pre_calc_symbol_worker(symbol, data):
         bias_4h = h4_biases.get(df_4h.index[idx_4h], "NONE")
         regime_1h = h1_regimes.get(df_1h.index[idx_1h], "NORMAL")
         
-        # SNIPER ELITE ALIGNMENT: 4H Bias AND Price relative to 4H EMA 200
         if bias_4h == "LONG" and px_curr < ema_4h: bias_4h = "NONE"
         if bias_4h == "SHORT" and px_curr > ema_4h: bias_4h = "NONE"
+        
+        # Volume Filter
+        vol_24h = df_15m['vol_24h_usdt'].iloc[i]
+        if vol_24h < min_vol_filter: bias_4h = "NONE"
         
         if bias_4h == "NONE": continue
 
@@ -134,6 +141,7 @@ def pre_calc_symbol_worker(symbol, data):
             'h': high_15m,
             'l': low_15m,
             'atr_15m': df_15m['atr'].iloc[i],
+            'vol_24h': df_15m['vol_24h_usdt'].iloc[i], # Add Volume check
             'idx_15m': i,
             'ts_1h': df_1h.index[idx_1h]
         }
@@ -147,7 +155,8 @@ class PortfolioBacktester:
         self.balance = initial_capital
         self.active_positions = [] # List of dicts
         self.trade_history = []
-        self.fee = 0.0004 # 0.04% Binance Futures Taker fee (Reduced)
+        self.fee = 0.0004 # 0.04% Binance Futures Taker fee
+        self.slippage_factor = Config.LIVE_SLIPPAGE_FACTOR
         
         # Debugging counters
         self.rejection_reasons = {
@@ -191,7 +200,7 @@ class PortfolioBacktester:
         start_exec = time.time()
         peak_balance = self.initial_capital
         simulation_stopped_at = None
-        max_dd_limit = 0.25 # Portfolio hard stop
+        max_dd_limit = Config.MAX_DRAWDOWN_LIMIT
         
         for count, ts in enumerate(all_timestamps, 1):
             if count % 20000 == 0:
@@ -257,7 +266,7 @@ class PortfolioBacktester:
                        (sigs['bias'] == "SHORT" and sigs['px'] > ema_1h):
                         continue
                     
-                    if score < 8.0: # Hybrid Sniper Sweet Spot
+                    if score < Config.MIN_SCORE_THRESHOLD:
                         self.rejection_reasons['low_score'] += 1
                         continue
                                       # 3. Dynamic High-Conviction Risk (Aimed at $3k-$5k profit target)
@@ -348,6 +357,7 @@ class PortfolioBacktester:
         # 3. SL Check (Conservative: SL always hits before TP in the same bar)
         if (pos['side'] == 'LONG' and low <= pos['sl']) or (pos['side'] == 'SHORT' and high >= pos['sl']):
             reason = "STOP_LOSS" if not pos['tp1_hit'] else "TRAILING_STOP"
+            pos['atr_at_exit'] = row.get('atr', 0) # Store for slippage calculation
             self._close_partial(pos, pos['sl'], ts, reason, pos['size'])
             return True
 
@@ -356,6 +366,7 @@ class PortfolioBacktester:
             if (pos['side'] == 'LONG' and high >= pos['tp1']) or (pos['side'] == 'SHORT' and low <= pos['tp1']):
                 pos['tp1_hit'] = True
                 close_amount = pos['size'] * 0.33
+                pos['atr_at_exit'] = row.get('atr', 0)
                 self._close_partial(pos, pos['tp1'], ts, "TP1_33%", close_amount)
                 pos['size'] -= close_amount
                 pos['sl'] = pos['entry_price'] # Move to Breakeven
@@ -366,16 +377,22 @@ class PortfolioBacktester:
             if (pos['side'] == 'LONG' and high >= pos['tp2']) or (pos['side'] == 'SHORT' and low <= pos['tp2']):
                 pos['tp2_hit'] = True
                 close_amount = pos['size'] * 0.50
+                pos['atr_at_exit'] = row.get('atr', 0)
                 self._close_partial(pos, pos['tp2'], ts, "TP2_33%", close_amount)
                 pos['size'] -= close_amount
                 pos['sl'] = pos['tp1'] # Lock profit at TP1
                 return False
 
-        # 6. TP3 / Moonshot Target (Final ~34%)
-        elif pos['tp2_hit']:
+        # 6. TP3 / Moonshot Transition (Close final half of remainder = ~17%)
+        elif not pos.get('tp3_hit', False):
             if (pos['side'] == 'LONG' and high >= pos['tp3']) or (pos['side'] == 'SHORT' and low <= pos['tp3']):
-                self._close_partial(pos, pos['tp3'], ts, "TP3_FULL", pos['size'])
-                return True
+                pos['tp3_hit'] = True
+                close_amount = pos['size'] * 0.50 # Half of the final piece
+                pos['atr_at_exit'] = row.get('atr', 0)
+                self._close_partial(pos, pos['tp3'], ts, "TP3_17%_MOONSHOT_START", close_amount)
+                pos['size'] -= close_amount
+                pos['sl'] = pos['tp2'] # Lock profit at TP2
+                return False # Keep the last 17% running!
             
         return False
 
@@ -388,9 +405,8 @@ class PortfolioBacktester:
         # 2. Fees (Standard 0.05% per side = 0.1% total)
         fee = (pos['entry_price'] * size * self.fee) + (exit_price * size * self.fee)
         
-        # 3. Slippage (CONSERVATIVE: 0.05% per side = 0.1% total slippage)
-        # This accounts for low liquidity or high volatility entries/exits
-        slippage = (pos['entry_price'] * size * 0.0005) + (exit_price * size * 0.0005)
+        # 3. Slippage (Live Stress Test: Config.LIVE_SLIPPAGE_FACTOR per side)
+        slippage = (pos['entry_price'] * size * self.slippage_factor) + (exit_price * size * self.slippage_factor)
         
         # 4. Funding Rate (Approx 0.01% every 8 hours)
         duration_hours = (exit_time - pos['entry_time']).total_seconds() / 3600
@@ -420,6 +436,8 @@ class PortfolioBacktester:
         status_msg = ""
         if stopped_at:
             status_msg = f"\n> [!CAUTION]\n> **HARD STOP TRIGGERED**: Simulation terminated at {stopped_at} due to hitting the 20% drawdown limit.\n"
+        
+        report_file = "backtest/reports/REPORT_PORTFOLIO_HARD_STOP_20.md"
 
         if not self.trade_history:
             report = f"""# 🏆 REALISTIC STRESS TEST REPORT (MOST RECENT 90 DAYS) - NO TRADES
@@ -437,7 +455,7 @@ Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 ---
 *Note: No trades were executed. Check rejection stats above to see why.*
 """
-            with open("REPORT_PORTFOLIO_HARD_STOP_20.md", "w", encoding='utf-8') as f:
+            with open(report_file, "w", encoding='utf-8') as f:
                 f.write(report)
             return report
 
@@ -467,12 +485,14 @@ Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
         dd = (cum_bal - peak) / peak
         max_dd = abs(dd.min()) * 100 if not dd.empty else 0
 
-        report = f"""# 🏆 REALISTIC STRESS TEST REPORT (MOST RECENT 90 DAYS)
+        report = f"""# 🏆 LATEST DATA BACKTEST REPORT (LAST 180 DAYS)
 Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 {status_msg}
 
 ## 📊 Summary Metrics
-- **Duration**: {days} Days (0.1% Slippage + 0.04% Fee + Funding Costs)
+- **Duration**: {days} Days (Realistic Stress Test)
+- **Parameters**: **{self.slippage_factor*100:.2f}% Slippage** per side + **{self.fee*100:.2f}% Fee**
+- **Volume Filter**: > **{Config.MIN_24H_VOLUME_USDT/1_000_000:.0f}M USDT**
 - **Starting Capital**: **{self.initial_capital} USDT**
 - **Final Balance**: **{self.balance:.2f} USDT**
 - **Net PnL**: `{total_pnl:.2f} USDT` (**{roi:.2f}%**)
@@ -494,13 +514,13 @@ Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 *Note: This backtest implemented a **20% Hard Drawdown Stop**. If the portfolio equity dropped 20% from its peak, all trading was halted.*
 """
 
-        with open("REPORT_PORTFOLIO_HARD_STOP_20.md", "w", encoding='utf-8') as f:
+        with open(report_file, "w", encoding='utf-8') as f:
             f.write(report)
         return report
 
 def main():
-    symbols = Config.TRADING_PAIRS # Use the expanded list from config
-    days = 90
+    symbols = Config.TRADING_PAIRS
+    days = 180 # Testing with latest 180 days as requested
     exchange = ccxt.binance({'options': {'defaultType': 'future'}})
     strategy = SMCStrategy()
     
@@ -529,6 +549,13 @@ def main():
 
     backtester = PortfolioBacktester(valid_symbols, strategy, initial_capital=1300)
     report = backtester.run(data_map, days)
+    
+    report_file = os.path.join(Config.BASE_DIR, "backtest", "reports", "REPORT_LATEST_DATA_STRESS.md")
+    os.makedirs(os.path.dirname(report_file), exist_ok=True)
+    with open(report_file, "w", encoding='utf-8') as f:
+        f.write(report)
+    
+    print(f"\nReport saved to: {report_file}")
     print("\n" + report)
 
 if __name__ == "__main__":

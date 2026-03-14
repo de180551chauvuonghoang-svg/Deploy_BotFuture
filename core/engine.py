@@ -30,12 +30,13 @@ class TradingEngine:
                     'side': pos['side'].upper(),
                     'entry': float(pos['entryPrice']),
                     'entryTime': pos.get('entryTime'), # Add entryTime
-                    'sl': float(pos.get('sl', 0)),
-                    'tp1': float(pos.get('tp1', 0)),
-                    'tp2': float(pos.get('tp2', 0)),
-                    'tp3': float(pos.get('tp3', 0)),
+                    'sl': float(pos.get('sl') or 0),
+                    'tp1': float(pos.get('tp1') or 0),
+                    'tp2': float(pos.get('tp2') or 0),
+                    'tp3': float(pos.get('tp3') or 0),
                     'tp1_done': pos.get('tp1_done', False),
-                    'tp2_done': pos.get('tp2_done', False)
+                    'tp2_done': pos.get('tp2_done', False),
+                    'tp3_done': pos.get('tp3_done', False)
                 }
             if self.active_positions:
                 logger.info(f"🔄 Đã đồng bộ {len(self.active_positions)} vị thế đang chạy từ bộ nhớ.")
@@ -155,12 +156,13 @@ class TradingEngine:
                     'side': pos['side'].upper(),
                     'entry': float(pos['entryPrice']),
                     'entryTime': pos.get('entryTime'),
-                    'sl': float(pos.get('sl', 0)),
-                    'tp1': float(pos.get('tp1', 0)),
-                    'tp2': float(pos.get('tp2', 0)),
-                    'tp3': float(pos.get('tp3', 0)),
+                    'sl': float(pos.get('sl') or 0),
+                    'tp1': float(pos.get('tp1') or 0),
+                    'tp2': float(pos.get('tp2') or 0),
+                    'tp3': float(pos.get('tp3') or 0),
                     'tp1_done': pos.get('tp1_done', False),
-                    'tp2_done': pos.get('tp2_done', False)
+                    'tp2_done': pos.get('tp2_done', False),
+                    'tp3_done': pos.get('tp3_done', False)
                  }
 
             p_info = self.active_positions[symbol]
@@ -223,14 +225,23 @@ class TradingEngine:
                     close_amt = contracts * 0.33
                     logger.info(f"SMC: TP1 Hit for {symbol} at {cur_price}! Closing 33% ({close_amt:.2f})")
                     self.exchange.create_order(symbol, 'sell' if side == 'LONG' else 'buy', close_amt)
+                    now_str = pd.Timestamp.utcnow().strftime('%H:%M:%S')
+                    tp1_usd = (cur_price - p_info['entry']) * close_amt if side == 'LONG' else (p_info['entry'] - cur_price) * close_amt
                     p_info['tp1_done'] = True
+                    p_info['tp1_time'] = now_str
+                    p_info['tp1_usd'] = round(tp1_usd, 2)
                     p_info['sl'] = p_info['entry'] # Move to Break-even
                     
                     # Persist metadata change
-                    self.exchange.update_position_metadata(symbol, {'tp1_done': True, 'sl': p_info['sl']})
+                    self.exchange.update_position_metadata(symbol, {
+                        'tp1_done': True, 
+                        'tp1_time': now_str,
+                        'tp1_usd': p_info['tp1_usd'],
+                        'sl': p_info['sl']
+                    })
                     
                     logger.info(f"SMC: Moved SL to Breakeven ({p_info['sl']:.4f})")
-                    notify_trade_closed(symbol, 0, f"TP1 Partial Closed (33%) - Moved to BE")
+                    notify_trade_closed(symbol, 0, f"TP1 Partial Closed (33%) at {now_str} (+{tp1_usd:.2f} USDT) - Moved to BE")
                     return None
 
             # C. PARTIAL TP2 (33%)
@@ -241,23 +252,54 @@ class TradingEngine:
                     close_amt = contracts * 0.50 
                     logger.info(f"SMC: TP2 Hit for {symbol} at {cur_price}! Closing 33% ({close_amt:.2f})")
                     self.exchange.create_order(symbol, 'sell' if side == 'LONG' else 'buy', close_amt)
+                    now_str = pd.Timestamp.utcnow().strftime('%H:%M:%S')
+                    tp2_usd = (cur_price - p_info['entry']) * close_amt if side == 'LONG' else (p_info['entry'] - cur_price) * close_amt
                     p_info['tp2_done'] = True
+                    p_info['tp2_time'] = now_str
+                    p_info['tp2_usd'] = round(tp2_usd, 2)
                     p_info['sl'] = p_info['tp1'] # Lock profit at TP1
                     
                     # Persist metadata change
-                    self.exchange.update_position_metadata(symbol, {'tp2_done': True, 'sl': p_info['sl']})
+                    self.exchange.update_position_metadata(symbol, {
+                        'tp2_done': True, 
+                        'tp2_time': now_str,
+                        'tp2_usd': p_info['tp2_usd'],
+                        'sl': p_info['sl']
+                    })
                     
                     logger.info(f"SMC: Locked Profit at TP1 ({p_info['sl']:.4f})")
-                    notify_trade_closed(symbol, 0, f"TP2 Partial Closed (33%) - Locked Profit at TP1")
+                    notify_trade_closed(symbol, 0, f"TP2 Partial Closed (33%) at {now_str} (+{tp2_usd:.2f} USDT) - Locked Profit at TP1")
                     return None
 
-            # D. FULL TP3 (Final Target)
-            if p_info.get('tp2_done'):
-                is_tp3 = (side == 'LONG' and cur_price >= p_info.get('tp3', p_info['tp2'] * 1.05)) or \
-                         (side == 'SHORT' and cur_price <= p_info.get('tp3', p_info['tp2'] * 0.95))
+            # D. PARTIAL TP3 (17% - Total Chốt 83%)
+            if p_info.get('tp2_done') and not p_info.get('tp3_done'):
+                is_tp3 = (side == 'LONG' and cur_price >= p_info['tp3']) or \
+                         (side == 'SHORT' and cur_price <= p_info['tp3'])
                 if is_tp3:
-                    self.close_position(symbol, f"SMC Final TP3 Target Hit")
+                    # Close 50% of REMAINDER (~17% of total)
+                    close_amt = contracts * 0.50
+                    logger.info(f"SMC: TP3 Hit for {symbol} at {cur_price}! Closing 17% ({close_amt:.2f})")
+                    self.exchange.create_order(symbol, 'sell' if side == 'LONG' else 'buy', close_amt)
+                    
+                    now_str = pd.Timestamp.utcnow().strftime('%H:%M:%S')
+                    tp3_usd = (cur_price - p_info['entry']) * close_amt if side == 'LONG' else (p_info['entry'] - cur_price) * close_amt
+                    p_info['tp3_done'] = True
+                    p_info['tp3_time'] = now_str
+                    p_info['tp3_usd'] = round(tp3_usd, 2)
+                    p_info['sl'] = p_info['tp2'] # Move SL to TP2
+                    
+                    self.exchange.update_position_metadata(symbol, {
+                        'tp3_done': True, 
+                        'tp3_time': now_str,
+                        'tp3_usd': p_info['tp3_usd'],
+                        'sl': p_info['sl']
+                    })
+                    
+                    logger.info(f"SMC: Locked Profit at TP2 ({p_info['sl']:.4f}). MOONSHOT RUNNER ACTIVE! 🚀")
+                    notify_trade_closed(symbol, 0, f"TP3 Partial Closed (17%) at {now_str} (+{tp3_usd:.2f} USDT) - Moonshot Runner is Running!")
                     return None
+
+            # E. REVERSAL CHECK (Always active, even for Moonshot)
 
             # E. REVERSAL CHECK
             side_actual = 'LONG' if float(pos['contracts']) > 0 else 'SHORT'
@@ -316,6 +358,10 @@ class TradingEngine:
         order = self.exchange.create_order(symbol, side_cmd, amount)
         if order:
             logger.info(f"🏁 TẤT TOÁN LỆNH: {symbol} - {reason}")
+            
+            # 🔧 Update metadata with reason before it gets deleted from active
+            self.exchange.update_position_metadata(symbol, {'close_reason': reason})
+            
             if symbol in self.active_positions: del self.active_positions[symbol]
             
             # 🔧 SYNC FIX: Update dry-run positions file for dashboard

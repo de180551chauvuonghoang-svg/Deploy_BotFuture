@@ -109,11 +109,15 @@ class ExchangeHandler:
                     new_contracts = float(existing['contracts']) - amount
                     if new_contracts <= 0:
                         actual_close_amount = float(existing['contracts'])
-                        pnl = (float(existing['entryPrice']) - price) * actual_close_amount
-                        roi = (pnl / float(existing['initialMargin'])) * 100 if float(existing['initialMargin']) > 0 else 0
-                        self._record_trade(symbol, 'short', existing['entryPrice'], price, actual_close_amount, pnl, roi, existing['entryTime'])
+                        final_pnl = (float(existing['entryPrice']) - price) * actual_close_amount
+                        total_pnl = final_pnl + float(existing.get('realizedPnl', 0))
+                        roi = (total_pnl / float(existing['initialMargin'])) * 100 if float(existing['initialMargin']) > 0 else 0
+                        self._record_trade(symbol, 'short', existing['entryPrice'], price, actual_close_amount, total_pnl, roi, existing['entryTime'], existing)
                         positions = [p for p in positions if p['symbol'] != symbol]
                     else:
+                        # Partial close - track realized PnL
+                        partial_pnl = (float(existing['entryPrice']) - price) * amount
+                        existing['realizedPnl'] = str(float(existing.get('realizedPnl', 0)) + partial_pnl)
                         existing['contracts'] = str(new_contracts)
                 else:
                     # New Long
@@ -137,7 +141,8 @@ class ExchangeHandler:
                         'tp1': kwargs.get('tp1'),
                         'tp2': kwargs.get('tp2'),
                         'tp3': kwargs.get('tp3'),
-                        'unrealizedPnl': '0.00'
+                        'unrealizedPnl': '0.00',
+                        'realizedPnl': '0.00'
                     })
             else: # sell
                 if existing and existing['side'] == 'short':
@@ -148,11 +153,15 @@ class ExchangeHandler:
                     new_contracts = float(existing['contracts']) - amount
                     if new_contracts <= 0:
                         actual_close_amount = float(existing['contracts'])
-                        pnl = (price - float(existing['entryPrice'])) * actual_close_amount
-                        roi = (pnl / float(existing['initialMargin'])) * 100 if float(existing['initialMargin']) > 0 else 0
-                        self._record_trade(symbol, 'long', existing['entryPrice'], price, actual_close_amount, pnl, roi, existing['entryTime'])
+                        final_pnl = (price - float(existing['entryPrice'])) * actual_close_amount
+                        total_pnl = final_pnl + float(existing.get('realizedPnl', 0))
+                        roi = (total_pnl / float(existing['initialMargin'])) * 100 if float(existing['initialMargin']) > 0 else 0
+                        self._record_trade(symbol, 'long', existing['entryPrice'], price, actual_close_amount, total_pnl, roi, existing['entryTime'], existing)
                         positions = [p for p in positions if p['symbol'] != symbol]
                     else:
+                        # Partial close - track realized PnL
+                        partial_pnl = (price - float(existing['entryPrice'])) * amount
+                        existing['realizedPnl'] = str(float(existing.get('realizedPnl', 0)) + partial_pnl)
                         existing['contracts'] = str(new_contracts)
                 else:
                     # New Short
@@ -175,7 +184,8 @@ class ExchangeHandler:
                         'sl': kwargs.get('sl'),
                         'tp1': kwargs.get('tp1'),
                         'tp2': kwargs.get('tp2'),
-                        'unrealizedPnl': '0.00'
+                        'unrealizedPnl': '0.00',
+                        'realizedPnl': '0.00'
                     })
             
             self._save_dry_positions(positions)
@@ -201,7 +211,7 @@ class ExchangeHandler:
         with open(self.dry_run_file, 'w') as f:
             json.dump(positions, f, indent=2)
 
-    def _record_trade(self, symbol, side, entry_px, exit_px, amount, pnl, roi, entry_time):
+    def _record_trade(self, symbol, side, entry_px, exit_px, amount, pnl, roi, entry_time, meta=None):
         history = self._load_trade_history()
         now = pd.Timestamp.now(tz='UTC').replace(tzinfo=None)
         try:
@@ -221,7 +231,14 @@ class ExchangeHandler:
             'roi': float(roi),
             'entryTime': entry_time,
             'exitTime': now.isoformat(),
-            'duration': duration
+            'duration': duration,
+            'tp1_time': meta.get('tp1_time', "") if meta else "",
+            'tp2_time': meta.get('tp2_time', "") if meta else "",
+            'tp3_time': meta.get('tp3_time', "") if meta else "",
+            'tp1_usd': meta.get('tp1_usd', 0) if meta else 0,
+            'tp2_usd': meta.get('tp2_usd', 0) if meta else 0,
+            'tp3_usd': meta.get('tp3_usd', 0) if meta else 0,
+            'close_reason': meta.get('close_reason', "Manual/Target") if meta else "Manual/Target"
         }
         history.append(trade)
         self._save_trade_history(history)
