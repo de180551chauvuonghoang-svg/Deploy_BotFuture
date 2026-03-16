@@ -163,6 +163,7 @@ class PortfolioBacktester:
             'regime_bias_none': 0,
             'no_ob_fvg_hit': 0,
             'low_score': 0,
+            'ai_low_confidence': 0,
             'no_risk_data': 0,
             'max_concurrent_positions': 0,
             'position_size_too_large': 0
@@ -269,7 +270,51 @@ class PortfolioBacktester:
                     if score < Config.MIN_SCORE_THRESHOLD:
                         self.rejection_reasons['low_score'] += 1
                         continue
-                                      # 3. Dynamic High-Conviction Risk (Aimed at $3k-$5k profit target)
+
+                    # 3. AI Confidence Filter (NEW)
+                    try:
+                        from ai.inference import ai_engine
+                        
+                        # Prepare features for AI
+                        rsi_15m = data_map[symbol]['15m']['rsi'].iloc[idx_15m]
+                        vol_sma = data_map[symbol]['15m']['vol_sma'].iloc[idx_15m]
+                        vol_ratio = data_map[symbol]['15m']['volume'].iloc[idx_15m] / vol_sma if vol_sma > 0 else 1.0
+                        
+                        ema_4h_val = data_map[symbol]['4h']['ema_200'].asof(ts)
+                        dist_ema200 = (sigs['px'] - ema_4h_val) / ema_4h_val if ema_4h_val > 0 else 0
+                        
+                        # We need a temporary risk calc to get sl/tp for features
+                        temp_risk = calculate_smart_sl_tp(sigs['bias'], sigs['px'], sigs['ob_hit'], sigs['atr_15m'], self.balance, score)
+                        if not temp_risk: continue
+                        
+                        sl_dist_pct = abs(sigs['px'] - temp_risk['sl']) / sigs['px']
+                        tp_dist_pct = abs(temp_risk['tp1'] - sigs['px']) / sigs['px']
+                        rr = tp_dist_pct / sl_dist_pct if sl_dist_pct > 0 else 1.0
+                        
+                        curr = data_map[symbol]['15m'].iloc[idx_15m]
+                        body_ratio = abs(curr['close'] - curr['open']) / (curr['high'] - curr['low']) if (curr['high'] - curr['low']) > 0 else 0
+                        
+                        features = {
+                            'score': score,
+                            'rsi_15m': rsi_15m,
+                            'vol_ratio_15m': vol_ratio,
+                            'dist_ema200_h4': dist_ema200,
+                            'sl_dist_pct': sl_dist_pct,
+                            'tp_dist_pct': tp_dist_pct,
+                            'rr': rr,
+                            'body_ratio': body_ratio,
+                            'vol_24h_usdt': sigs['vol_24h'],
+                            'side': 1 if sigs['bias'] == 'LONG' else 0
+                        }
+                        
+                        ai_confidence = ai_engine.get_confidence(features)
+                        if ai_confidence < Config.AI_CONFIDENCE_THRESHOLD:
+                            self.rejection_reasons['ai_low_confidence'] += 1
+                            continue
+                    except Exception as e:
+                         pass
+
+                    # 4. Dynamic High-Conviction Risk (Aimed at $3k-$5k profit target)
                     # ENTRY OPTIMIZATION: Enter at 50% Equilibrium (Re-optimized for R/R)
                     if sigs['ob_hit']:
                         entry_px = (sigs['ob_hit']['top'] + sigs['ob_hit']['bottom']) / 2
@@ -369,19 +414,37 @@ class PortfolioBacktester:
                 pos['atr_at_exit'] = row.get('atr', 0)
                 self._close_partial(pos, pos['tp1'], ts, "TP1_33%", close_amount)
                 pos['size'] -= close_amount
-                pos['sl'] = pos['entry_price'] # Move to Breakeven
+                # 🚀 SNIPER MOVE: Hard Break-Even
+                pos['sl'] = pos['entry_price']
                 return False
 
-        # 5. TP2 Check (Close 50% of remainder = ~33% of initial)
-        elif not pos['tp2_hit']:
-            if (pos['side'] == 'LONG' and high >= pos['tp2']) or (pos['side'] == 'SHORT' and low <= pos['tp2']):
+        # 5. TP2 Check & Sniper Compression Trailing
+        elif not pos.get('tp2_hit', False):
+            tp1_price, tp2_price = pos['tp1'], pos['tp2']
+            total_dist = abs(tp2_price - tp1_price)
+            current_progress = (high - tp1_price) / total_dist if total_dist > 0 else 0
+            
+            # A. Check for TP2 Hit
+            if (pos['side'] == 'LONG' and high >= tp2_price) or (pos['side'] == 'SHORT' and low <= tp2_price):
                 pos['tp2_hit'] = True
                 close_amount = pos['size'] * 0.50
                 pos['atr_at_exit'] = row.get('atr', 0)
                 self._close_partial(pos, pos['tp2'], ts, "TP2_33%", close_amount)
                 pos['size'] -= close_amount
-                pos['sl'] = pos['tp1'] # Lock profit at TP1
+                pos['sl'] = tp1_price # Lock profit at TP1
                 return False
+            
+            # B. Sniper Dynamic Trailing (Compression)
+            if current_progress > 0.5:
+                atr_val = row.get('atr', 0)
+                comp_factor = 1.5 - (current_progress * 0.8)
+                trail_dist = atr_val * max(0.7, comp_factor)
+                if pos['side'] == 'LONG':
+                    target_sl = close - trail_dist
+                    pos['sl'] = max(pos['sl'], target_sl, tp1_price)
+                else:
+                    target_sl = close + trail_dist
+                    pos['sl'] = min(pos['sl'], target_sl, tp1_price)
 
         # 6. TP3 / Moonshot Transition (Close final half of remainder = ~17%)
         elif not pos.get('tp3_hit', False):
@@ -392,8 +455,20 @@ class PortfolioBacktester:
                 self._close_partial(pos, pos['tp3'], ts, "TP3_17%_MOONSHOT_START", close_amount)
                 pos['size'] -= close_amount
                 pos['sl'] = pos['tp2'] # Lock profit at TP2
-                return False # Keep the last 17% running!
+                return False 
             
+        # 7. 🚀 Moonshot Aggressive Trailing (After TP3)
+        if pos.get('tp3_hit', False):
+            atr_val = row.get('atr', 0)
+            if atr_val > 0:
+                trail_dist = atr_val * 1.5
+                if pos['side'] == 'LONG':
+                    target_sl = close - trail_dist
+                    pos['sl'] = max(pos['sl'], target_sl)
+                else:
+                    target_sl = close + trail_dist
+                    pos['sl'] = min(pos['sl'], target_sl)
+                    
         return False
 
     def _close_partial(self, pos, exit_price, exit_time, reason, size):
@@ -520,28 +595,38 @@ Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 def main():
     symbols = Config.TRADING_PAIRS
-    days = 180 # Testing with latest 180 days as requested
+    days = 360 # Testing with latest 360 days as requested
     exchange = ccxt.binance({'options': {'defaultType': 'future'}})
     strategy = SMCStrategy()
     
-    print("Loading all historical data for portfolio test...")
+    print(f"Loading all historical data for portfolio test (Stable Parallel Fetch active)...")
     data_map = {}
     valid_symbols = []
     
-    for s in symbols:
+    from concurrent.futures import ThreadPoolExecutor
+    
+    def fetch_task(s):
         try:
             print(f"Fetching/Loading {s}...")
+            time.sleep(0.5) # Increased buffer for 360-day data volume
             m15 = fetch_historical_data(exchange, s, '15m', days=days)
             h1 = fetch_historical_data(exchange, s, '1h', days=days)
             h4 = fetch_historical_data(exchange, s, '4h', days=days)
-            
             if m15 is not None and h1 is not None and h4 is not None:
-                data_map[s] = {'15m': m15, '1h': h1, '4h': h4}
-                valid_symbols.append(s)
-            else:
-                print(f"Skipping {s} due to missing data.")
+                return s, {'15m': m15, '1h': h1, '4h': h4}
         except Exception as e:
             print(f"Error fetching {s}: {e}")
+        return s, None
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(fetch_task, symbols))
+        
+    for s, data in results:
+        if data:
+            data_map[s] = data
+            valid_symbols.append(s)
+        else:
+            print(f"Skipping {s} due to missing data.")
 
     if not valid_symbols:
         print("No valid symbols fetched. Exiting.")
@@ -556,7 +641,11 @@ def main():
         f.write(report)
     
     print(f"\nReport saved to: {report_file}")
-    print("\n" + report)
+    try:
+        print("\n" + report)
+    except UnicodeEncodeError:
+        # Fallback for terminals that don't support emojis/UTF-8
+        print("\n" + report.encode('ascii', 'ignore').decode('ascii'))
 
 if __name__ == "__main__":
     main()

@@ -22,7 +22,7 @@ def fetch_historical_data(exchange, symbol, timeframe, days=180):
         # Fix: Ensure comparison is timezone-aware or both UTC
         last_candle = df.index[-1]
         now_utc = datetime.utcnow()
-        if last_candle > now_utc - timedelta(hours=1):
+        if last_candle > now_utc - timedelta(days=1):
             logger.info(f"Loaded {symbol} ({timeframe}) from cache.")
             return df
 

@@ -1,0 +1,44 @@
+TỔNG HỢP CHIẾN THUẬT VÀ TÍNH NĂNG BOT TRADING SMC AI
+=====================================================
+
+1. KIẾN TRÚC HỆ THỐNG (ARCHITECTURE)
+------------------------------------
+* Exchange Handler (core/exchange.py): Kết nối trực tiếp với Binance Futures API. Chịu trách nhiệm thực thi lệnh, quản lý số dư và Metadata của từng vị thế. Có chế độ Dry Run để chạy giả lập không mất tiền thật.
+* Trading Engine (core/engine.py): Lõi vận hành chính, chạy chu kỳ mỗi 10 giây. Engine điều phối việc quét tín hiệu, kiểm soát rủi ro danh mục, đồng bộ hóa các vị thế đang chạy và cập nhật trạng thái lên Dashboard.
+* Config System: Trung tâm điều khiển toàn bộ tham số (Leverage, Risk %, AI Threshold, Trading Pairs).
+
+2. CHIẾN THUẬT SMC NÂNG CAO (SMART MONEY CONCEPTS)
+--------------------------------------------------
+Chiến thuật hoạt động trên đa khung thời gian để tìm kiếm "Dấu chân tổ chức":
+* Macro Bias (4H): Xác định xu hướng chính của thị trường (Bullish/Bearish) bằng cấu trúc thị trường (Market Structure).
+* Key Zones (1H): Tự động phát hiện các vùng Order Block (OB) và Fair Value Gap (FVG) - nơi các tổ chức lớn thường để lại lệnh chờ.
+* Entry Trigger (15M): Bot chỉ vào lệnh khi giá chạm vào vùng OB/FVG của khung 1H và có tín hiệu quét thanh khoản (Liquidity Sweep) để đảm bảo tối ưu hóa R/R.
+
+3. HỆ THỐNG AI THÔNG MINH (AI FEATURES)
+---------------------------------------
+Bot được trang bị "bộ não" AI gồm 3 thành phần chính:
+* AI Signal Filter (XGBoost): Chấm điểm độ tin cậy của từng tín hiệu. Nếu điểm tin cậy < 70%, Bot sẽ từ chối vào lệnh dù SMC có đẹp đến đâu. Hiệu suất lọc đạt độ chính xác ~81%.
+* AI Sentiment Engine (FinBERT): Đọc và phân tích hàng nghìn tin tức từ NewsAPI/CryptoPanic. Nếu phát hiện tâm lý thị trường cực xấu (Extreme Fear), hệ thống sẽ bật "Safety Switch" để dừng mọi lệnh Entry mới.
+* AI Self-Learning Agent (RL): Sử dụng học tăng cường (Reinforcement Learning) để tự theo dõi kết quả thắng/thua. Nếu Winrate giảm, AI sẽ tự động tăng điều kiện vào lệnh và giảm rủi ro trong Config để thích nghi với thị trường.
+
+4. QUY TRÌNH ĐI LỆNH VÀ THOÁT LỆNH (ORDER EXECUTION)
+----------------------------------------------------
+Đây là phần quan trọng nhất trong việc quản lý lợi nhuận:
+* Điểm vào lệnh (Entry): Ưu tiên vào lệnh tại điểm 50% của Order Block (Equilibrium) để có mức cắt lỗ ngắn nhất.
+* Cắt lỗ (Stop Loss): Đặt dưới/trên OB và được cộng thêm một khoảng Buffer dựa trên biến động ATR để tránh bị quét râu nến.
+* Chốt lời 4 Giai đoạn (Sniper TP Strategy):
+    - TP1 (1.2R): Chốt 33% khối lượng. Ngay lập tức dời SL về điểm vào lệnh (Hard Breakeven) để bảo vệ vốn 100%.
+    - TP2 (3.5R): Chốt tiếp 33% khối lượng. Dời SL lên điểm TP1 để khóa lợi nhuận.
+    - TP3 (7.0R): Chốt thêm 17% khối lượng. Dời SL lên điểm TP2.
+    - Moonshot Runner: Để lại 17% khối lượng còn lại gồng lời vô cực. Kích hoạt Trailing Stop theo ATR cực chặt để bắt các cú bùng nổ (Parabolic).
+
+5. QUẢN TRỊ RỦI RO (RISK MANAGEMENT)
+------------------------------------
+* Quản lý vốn năng động (Dynamic Sizing): Tự động tính toán khối lượng lệnh dựa trên khoảng cách cắt lỗ và số dư tài khoản (Thường là 1-2% rủi ro mỗi lệnh).
+* Portfolio Guard: Tự động dừng Bot nếu mức sụt giảm tài khoản (Drawdown) vượt quá 25% đỉnh.
+* Anti-Stuck: Tự động đóng lệnh nếu giá đi ngang quá 12 giờ hoặc giữ lệnh quá 48 giờ để giải phóng vốn.
+
+6. ĐIỀU KHIỂN VÀ GIÁM SÁT
+-------------------------
+* Dashboard Streamlit: Hiển thị thời gian thực biểu đồ, thông số AI, tâm lý thị trường và lịch sử giao dịch. Cho phép xuất báo cáo tài chính ra Excel chuyên nghiệp.
+* Discord Notifications: Gửi thông báo chi tiết ngay khi Bot vào lệnh, chốt lời từng phần hoặc đóng lệnh.

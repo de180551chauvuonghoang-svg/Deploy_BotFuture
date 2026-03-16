@@ -21,9 +21,16 @@ class Config:
     POSITION_SIZE_PCT = float(os.getenv('POSITION_SIZE_PERCENT', 2.0)) / 100
     
     # Professional SMC Management (Hybrid Sniper Optimization)
-    MIN_SCORE_THRESHOLD = 8.0
-    BASE_RISK_PCT = 0.01      # Start with 1.0% risk per trade
+    MIN_SCORE_THRESHOLD = 7.5
+    BASE_RISK_PCT = 0.015
     MAX_RISK_PCT = 0.02       # Max 2.0% risk for A++ setups
+    
+    # AI System
+    AI_CONFIDENCE_THRESHOLD = 0.70  # Only trade if AI is 70% confident
+    
+    # AI Sentiment Analysis (Phase 2)
+    CRYPTOPANIC_API_KEY = os.getenv('CRYPTOPANIC_API_KEY', '') # Get from cryptopanic.com/developers/api/
+    SENTIMENT_THRESHOLD = -0.3 # -1.0 to 1.0. If sentiment < -0.3 (Extreme Fear), pause trading.
     
     MAX_DRAWDOWN_LIMIT = 0.25 # 25% Portfolio Hard Stop
     RISK_LEVEL_1_DD = 0.15   # 15% DD -> Scale to 40%

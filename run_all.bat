@@ -1,0 +1,6 @@
+@echo off
+echo Dang khoi dong Trading Bot...
+start "Trading Bot" .\.venv\Scripts\python.exe main.py
+echo Dang khoi dong Dashboard...
+.\.venv\Scripts\streamlit.exe run dashboard\app.py
+pause

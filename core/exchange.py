@@ -184,6 +184,7 @@ class ExchangeHandler:
                         'sl': kwargs.get('sl'),
                         'tp1': kwargs.get('tp1'),
                         'tp2': kwargs.get('tp2'),
+                        'tp3': kwargs.get('tp3'),
                         'unrealizedPnl': '0.00',
                         'realizedPnl': '0.00'
                     })
@@ -199,6 +200,40 @@ class ExchangeHandler:
             except Exception as e:
                 logger.error(f"Error creating order: {e}")
                 return None
+
+    def place_stop_order(self, symbol, side, amount, stop_price):
+        """
+        Places a STOP_MARKET order on the exchange.
+        In dry run, we simulate it by tracking the stop price in metadata.
+        """
+        if self.dry_run:
+            logger.info(f"[DRY RUN] Simulating STOP_MARKET {side} {amount} for {symbol} at {stop_price}")
+            return {'id': f'dry_stop_{int(time.time())}', 'status': 'open', 'type': 'stop_market'}
+        else:
+            try:
+                params = {'stopPrice': stop_price}
+                order = self.exchange.create_order(symbol, 'STOP_MARKET', side, amount, params=params)
+                logger.info(f"Stop order placed: {side} {amount} {symbol} @ {stop_price}")
+                return order
+            except Exception as e:
+                logger.error(f"Error placing stop order for {symbol}: {e}")
+                return None
+
+    def cancel_order(self, symbol, order_id):
+        """
+        Cancels an open order by ID.
+        """
+        if self.dry_run:
+            logger.info(f"[DRY RUN] Simulating cancel order {order_id} for {symbol}")
+            return True
+        else:
+            try:
+                self.exchange.cancel_order(order_id, symbol)
+                logger.info(f"Canceled order {order_id} for {symbol}")
+                return True
+            except Exception as e:
+                logger.error(f"Error canceling order {order_id} for {symbol}: {e}")
+                return False
 
     def _load_dry_positions(self):
         if not os.path.exists(self.dry_run_file): return []

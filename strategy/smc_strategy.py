@@ -95,11 +95,53 @@ class SMCStrategy:
         else:
             entry_px = curr_px # Fallback for FVG
             
-        atr_15m = ta.atr(df_15m['high'], df_15m['low'], df_15m['close']).iloc[-1]
+        atr_15m_all = ta.atr(df_15m['high'], df_15m['low'], df_15m['close'])
+        atr_15m = atr_15m_all.iloc[-1]
         risk_data = calculate_smart_sl_tp(bias, entry_px, ob_hit, atr_15m, balance, score)
         
         if not risk_data:
             return {"signal": "NONE", "reason": "Risk distance too large", "confluences": confluences}
+
+        # 7. AI Confidence Filter (NEW)
+        ai_confidence = 1.0
+        try:
+            from ai.inference import ai_engine
+            
+            # Prepare features for AI
+            rsi_15m = df_15m['rsi'].iloc[-1] if 'rsi' in df_15m.columns else 50
+            vol_sma = df_15m['vol_sma'].iloc[-1] if 'vol_sma' in df_15m.columns else df_15m['volume'].rolling(20).mean().iloc[-1]
+            vol_ratio = df_15m['volume'].iloc[-1] / vol_sma if vol_sma > 0 else 1.0
+            
+            ema200_h4 = df_4h['ema_200'].iloc[-1] if 'ema_200' in df_4h.columns else df_4h['close'].iloc[-1]
+            dist_ema200 = (df_4h['close'].iloc[-1] - ema200_h4) / ema200_h4 if ema200_h4 > 0 else 0
+            
+            sl_dist_pct = abs(entry_px - risk_data['sl']) / entry_px
+            tp_dist_pct = abs(risk_data['tp1'] - entry_px) / entry_px
+            rr = tp_dist_pct / sl_dist_pct if sl_dist_pct > 0 else 1.0
+            
+            curr = df_15m.iloc[-1]
+            body_ratio = abs(curr['close'] - curr['open']) / (curr['high'] - curr['low']) if (curr['high'] - curr['low']) > 0 else 0
+            
+            features = {
+                'score': score,
+                'rsi_15m': rsi_15m,
+                'vol_ratio_15m': vol_ratio,
+                'dist_ema200_h4': dist_ema200,
+                'sl_dist_pct': sl_dist_pct,
+                'tp_dist_pct': tp_dist_pct,
+                'rr': rr,
+                'body_ratio': body_ratio,
+                'vol_24h_usdt': (df_15m['volume'] * df_15m['close']).rolling(window=96).sum().iloc[-1],
+                'side': 1 if bias == 'LONG' else 0
+            }
+            
+            ai_confidence = ai_engine.get_confidence(features)
+            confluences['ai_confidence'] = ai_confidence
+            
+            if ai_confidence < Config.AI_CONFIDENCE_THRESHOLD:
+                return {"signal": "NONE", "reason": f"AI Confidence {ai_confidence:.1%} below threshold ({Config.AI_CONFIDENCE_THRESHOLD:.0%})", "confluences": confluences}
+        except Exception as e:
+            print(f"⚠️ AI Inference skipped: {e}")
 
         return {
             "signal": bias,
@@ -111,6 +153,7 @@ class SMCStrategy:
             "size": risk_data["size"],
             "atr": atr_15m,
             "score": score,
+            "ai_confidence": ai_confidence,
             "confluences": confluences,
-            "reason": f"SMC {bias} Setup | Regime: {regime} | Score: {score:.1f}"
+            "reason": f"SMC {bias} | Score: {score:.1f} | AI: {ai_confidence:.1%}"
         }

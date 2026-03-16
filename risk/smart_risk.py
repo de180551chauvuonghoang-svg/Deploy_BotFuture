@@ -30,8 +30,6 @@ def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score):
     from config.config import Config
     
     # Scale risk from 1.0% to 2.0% based on score
-    # 8.0 score -> 1.0% risk
-    # 10.0 score -> 2.0% risk
     risk_pct = Config.BASE_RISK_PCT
     if score >= 9.0:
         over_threshold = (score - 8.0) / 2.0 # Scale from 0 to 1
@@ -40,8 +38,6 @@ def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score):
     risk_amount = account_balance * risk_pct
     position_size = risk_amount / sl_dist if sl_dist > 0 else 0
 
-    # Limit per-trade margin to 10% of account balance
-    # This is a safety hard-cap to prevent over-leveraging
     max_margin_usd = account_balance * 0.10
     max_size_by_margin = (max_margin_usd * Config.LEVERAGE) / entry
     
@@ -57,27 +53,78 @@ def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score):
         "sl": sl,
         "tp1": tp1,
         "tp2": tp2,
-        "tp3": tp3, # Added TP3
+        "tp3": tp3,
         "size": position_size,
         "risk_pct": risk_pct
     }
 
-def update_dynamic_exit(curr_px, entry, current_sl, side, atr_val, tp1_hit):
+def update_dynamic_exit(curr_px, entry, current_sl, side, atr_val, p_info):
     """
-    Implements Breakeven and Trailing rules.
+    Implements aggressive Breakeven and Trailing rules to protect positive PnL.
     """
-    sl_dist = abs(entry - current_sl)
+    tp1_hit = p_info.get('tp1_done', False)
+    tp2_hit = p_info.get('tp2_done', False)
+    tp3_hit = p_info.get('tp3_done', False)
     
-    # 1. Breakeven Rule (at TP1 or +1.5R)
-    if tp1_hit:
-        if (side == "LONG" and current_sl < entry) or (side == "SHORT" and current_sl > entry):
-            return entry * (1 + 0.001) if side == "LONG" else entry * (1 - 0.001)
-
-    # 2. Trail after +2.5R
-    pnl_dist = abs(curr_px - entry)
-    if pnl_dist > (sl_dist * 2.5):
-        new_sl = curr_px - atr_val if side == "LONG" else curr_px + atr_val
-        if side == "LONG": return max(current_sl, new_sl)
-        else: return min(current_sl, new_sl)
+    # 1. TP1 Hit: Move SL to Hard Breakeven (Exact Entry)
+    if tp1_hit and not tp2_hit:
+        # 1. Base Security: Always at least Entry (Hard BE)
+        new_sl = entry
         
+        tp1_price = float(p_info.get('tp1', entry))
+        tp2_price = float(p_info.get('tp2', entry))
+        total_dist = abs(tp2_price - tp1_price)
+        current_progress = abs(curr_px - tp1_price)
+        progress_pct = current_progress / total_dist if total_dist > 0 else 0
+
+        # 2. Dynamic Sniper Trailing (The "Hay hơn" part)
+        if progress_pct > 0.5:
+            # Nếu vượt 50% quãng đường, bắt đầu bám sát bằng ATR
+            # Càng gần TP2, khoảng cách càng hẹp (Từ 1.5x ATR nén xuống còn 0.7x ATR)
+            compression_factor = 1.5 - (progress_pct * 0.8) # Giảm dần khoảng cách
+            trail_dist = atr_val * max(0.7, compression_factor) 
+            
+            if side == "LONG":
+                target_sl = curr_px - trail_dist
+                # SL chỉ có tiến, không có lùi. Tối thiểu phải là TP1 khi đã qua 50%
+                new_sl = max(tp1_price, target_sl)
+            else:
+                target_sl = curr_px + trail_dist
+                new_sl = min(tp1_price, target_sl)
+            
+        if side == "LONG": current_sl = max(current_sl, new_sl)
+        else: current_sl = min(current_sl, new_sl)
+
+    # 2. TP2 Hit: Lock profit at TP1 and start ATR Trailing
+    if tp2_hit and not tp3_hit:
+        tp1_price = float(p_info.get('tp1', entry))
+        new_sl = tp1_price
+        
+        trail_dist = atr_val * 1.5
+        if side == "LONG":
+            target_sl = curr_px - trail_dist
+            new_sl = max(new_sl, target_sl)
+        else:
+            target_sl = curr_px + trail_dist
+            new_sl = min(new_sl, target_sl)
+            
+        current_sl = new_sl
+
+    # 3. Moonshot Stage (After TP3): Extremely Tight trailing to catch parabolic moves
+    if tp3_hit:
+        # Move SL to TP2 baseline as minimum
+        tp2_price = float(p_info.get('tp2', entry))
+        new_sl = tp2_price
+        
+        # Super Tight Trailing: 1.0x ATR from current price to lock parabolic gains
+        trail_dist = atr_val * 1.0
+        if side == "LONG":
+            target_sl = curr_px - trail_dist
+            new_sl = max(new_sl, target_sl)
+        else:
+            target_sl = curr_px + trail_dist
+            new_sl = min(new_sl, target_sl)
+            
+        current_sl = new_sl
+            
     return current_sl

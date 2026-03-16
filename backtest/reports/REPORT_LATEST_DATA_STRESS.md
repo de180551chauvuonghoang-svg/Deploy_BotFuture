@@ -1,27 +1,27 @@
 # 🏆 LATEST DATA BACKTEST REPORT (LAST 180 DAYS)
-Generated on: 2026-03-14 15:22:23
+Generated on: 2026-03-16 09:15:31
 
 
 ## 📊 Summary Metrics
-- **Duration**: 180 Days (Realistic Stress Test)
+- **Duration**: 360 Days (Realistic Stress Test)
 - **Parameters**: **0.15% Slippage** per side + **0.04% Fee**
 - **Volume Filter**: > **50M USDT**
 - **Starting Capital**: **1300 USDT**
-- **Final Balance**: **9770.37 USDT**
-- **Net PnL**: `8470.37 USDT` (**651.57%**)
-- **Win Rate**: `64.44%`
-- **Total Trades**: `239`
-- **Max Drawdown Experienced**: `17.62%`
+- **Final Balance**: **984.29 USDT**
+- **Net PnL**: `-315.71 USDT` (**-24.29%**)
+- **Win Rate**: `34.48%`
+- **Total Trades**: `29`
+- **Max Drawdown Experienced**: `18.51%`
 - **Symbols Tested**: BTC/USDT, ETH/USDT, SOL/USDT, TRUMP/USDT, XRP/USDT, DOGE/USDT, PIXEL/USDT, BNB/USDT, RIVER/USDT, 1000PEPE/USDT, ZEC/USDT, HYPE/USDT, LYN/USDT, TURBO/USDT, SUI/USDT, TAO/USDT, ADA/USDT, AVAX/USDT, BCH/USDT, PAXG/USDT, ENSO/USDT, DEGO/USDT, NEAR/USDT, LINK/USDT, UAI/USDT, FIL/USDT, RENDER/USDT, ENA/USDT, DOT/USDT, ACX/USDT, FET/USDT, HUMA/USDT, AAVE/USDT, WLD/USDT, WLFI/USDT, SIREN/USDT, LTC/USDT, OGN/USDT, UNI/USDT, PIPPIN/USDT, ASTER/USDT, WIF/USDT, 1000SHIB/USDT, PENGU/USDT, VVV/USDT, XPL/USDT, CRCL/USDT, ROBO/USDT, ICP/USDT, GALA/USDT, TRIA/USDT, FARTCOIN/USDT, 1000BONK/USDT, RESOLV/USDT, ARB/USDT, VIRTUAL/USDT, APT/USDT, NAORIS/USDT, OPN/USDT, TRX/USDT, COLLECT/USDT, MOODENG/USDT, BTR/USDT, XLM/USDT, ETC/USDT, HBAR/USDT, OP/USDT, NIGHT/USDT, CRV/USDT, MSTR/USDT, SIGN/USDT, FLOW/USDT, AVNT/USDT, POWER/USDT, SEI/USDT, GRT/USDT, OXT/USDT, MELANIA/USDT, BANANAS31/USDT, BARD/USDT, NEIRO/USDT, XMR/USDT, ONDO/USDT, ZRO/USDT, TIA/USDT, TON/USDT, PLAY/USDT, DASH/USDT, XAI/USDT, BERA/USDT, INJ/USDT, F/USDT, ALGO/USDT, LIT/USDT, 1000SATS/USDT, MANTRA/USDT, ESP/USDT, BULLA/USDT
 
 ## 💎 Performance Breakdown
-- **Số lệnh Thắng (Win)**: `154`
-- **Số lệnh Thua (Loss)**: `85`
+- **Số lệnh Thắng (Win)**: `10`
+- **Số lệnh Thua (Loss)**: `19`
 - **Số lệnh Hòa (Draw)**: `0`
-- **Profit Factor**: `2.11`
-- **Average Win**: `104.50 USDT`
-- **Average Loss**: `-89.68 USDT`
-- **Average PnL per trade**: `35.44 USDT`
+- **Profit Factor**: `0.10`
+- **Average Win**: `3.56 USDT`
+- **Average Loss**: `-18.49 USDT`
+- **Average PnL per trade**: `-10.89 USDT`
 
 ---
 *Note: This backtest implemented a **20% Hard Drawdown Stop**. If the portfolio equity dropped 20% from its peak, all trading was halted.*
