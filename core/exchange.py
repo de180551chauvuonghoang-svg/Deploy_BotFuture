@@ -25,6 +25,7 @@ class ExchangeHandler:
             'options': {
                 'defaultType': 'future',
                 'adjustForTimeDifference': True,
+                'warnOnFetchOpenOrdersWithoutSymbol': False,
             }
         })
         
@@ -39,10 +40,44 @@ class ExchangeHandler:
         self.dry_run = Config.PAPER_TRADING  # Default to dry run if paper trading is on
         
         if Config.PAPER_TRADING:
-            # Force LOCAL DRY RUN simulation immediately to bypass deprecated Sandbox
+            # Force LOCAL DRY RUN simulation immediately
             logger.info("Running in LOCAL DRY RUN (Simulation) mode.")
             self.dry_run = True
-            # We still initialize the exchange to fetch OHLCV data, but we don't use the sandbox
+        elif Config.USE_TESTNET:
+            logger.info("🚀 KÍCH HOẠT BINANCE FUTURE TESTNET (Surgical Sign Hijack)")
+            # We use standard mode but surgically hijack URLs just before signing
+            self.exchange.set_sandbox_mode(False)
+            self.public_exchange.set_sandbox_mode(False)
+            
+            def create_custom_sign(original_sign):
+                def custom_sign(path, api='public', method='GET', params={}, headers=None, body=None):
+                    result = original_sign(path, api, method, params, headers, body)
+                    # Redirect any futures-related binance traffic to the testnet domain
+                    original_url = result['url']
+                    if 'binance.com' in result['url'] or 'binancefuture.com' in result['url']:
+                        result['url'] = result['url'].replace('fapi.binance.com', 'testnet.binancefuture.com')
+                        result['url'] = result['url'].replace('dapi.binance.com', 'testnet.binancefuture.com')
+                        result['url'] = result['url'].replace('sapi.binance.com', 'testnet.binancefuture.com')
+                        result['url'] = result['url'].replace('api.binance.com', 'testnet.binancefuture.com')
+                    
+                    return result
+                return custom_sign
+            
+            self.exchange.sign = create_custom_sign(self.exchange.sign)
+            self.public_exchange.sign = create_custom_sign(self.public_exchange.sign)
+            
+            self.exchange.options['adjustForTimeDifference'] = True
+            self.exchange.options['recvWindow'] = 60000
+            
+            try:
+                self.exchange.load_time_difference()
+                logger.info("✅ Đã đồng bộ thời gian với Binance Testnet Server")
+            except Exception as e:
+                logger.warning(f"Không thể đồng bộ thời gian: {e}")
+                
+            self.dry_run = False
+        else:
+            self.dry_run = False
 
     def fetch_ohlcv(self, symbol, timeframe='15m', limit=100):
         retries = 3
@@ -90,9 +125,9 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"Error setting leverage for {symbol}: {e}")
 
-    def create_order(self, symbol, side, amount, type='market', **kwargs):
+    def create_order(self, symbol, side, amount, type='market', price=None, **kwargs):
         """
-        Creates a market order (supported in dry run and live).
+        Creates an order (market or limit).
         """
         if Config.PAPER_TRADING:
             # --- DRY RUN LOGIC ---
@@ -194,8 +229,40 @@ class ExchangeHandler:
         else:
             try:
                 # Live mode
-                order = self.exchange.create_order(symbol, type, side, amount, params=kwargs)
-                logger.info(f"Order created: {side} {amount} {symbol} @ {type}")
+                if type.lower() == 'limit':
+                    order = self.exchange.create_order(symbol, type, side, amount, price, params=kwargs)
+                else:
+                    order = self.exchange.create_order(symbol, type, side, amount, params=kwargs)
+                
+                logger.info(f"Order created: {side} {amount} {symbol} @ {type} (Price: {price})")
+                
+                # Fetch price for metadata if market
+                ticker_price = price
+                if not ticker_price:
+                    ticker = self.fetch_ticker(symbol)
+                    ticker_price = ticker['last'] if ticker else 0
+
+                # 🚀 Persist metadata immediately for all modes
+                # ONLY for entry orders (not partial TPs or SLs)
+                is_close = kwargs.get('reduceOnly') or kwargs.get('close')
+                
+                if not is_close:
+                    meta = {
+                        'symbol': symbol,
+                        'side': 'long' if side.lower() in ['buy', 'long'] else 'short',
+                        'entryPrice': str(ticker_price),
+                        'contracts': str(amount),
+                        'sl': kwargs.get('sl'),
+                        'tp1': kwargs.get('tp1'),
+                        'tp2': kwargs.get('tp2'),
+                        'tp3': kwargs.get('tp3'),
+                        'leverage': str(Config.LEVERAGE),
+                        'entryTime': pd.Timestamp.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+                    }
+                    # Filter out None values
+                    meta = {k: v for k, v in meta.items() if v is not None}
+                    self.update_position_metadata(symbol, meta)
+                
                 return order
             except Exception as e:
                 logger.error(f"Error creating order: {e}")
@@ -211,7 +278,7 @@ class ExchangeHandler:
             return {'id': f'dry_stop_{int(time.time())}', 'status': 'open', 'type': 'stop_market'}
         else:
             try:
-                params = {'stopPrice': stop_price}
+                params = {'stopPrice': stop_price, 'reduceOnly': True}
                 order = self.exchange.create_order(symbol, 'STOP_MARKET', side, amount, params=params)
                 logger.info(f"Stop order placed: {side} {amount} {symbol} @ {stop_price}")
                 return order
@@ -290,6 +357,35 @@ class ExchangeHandler:
         with open(self.trade_history_file, 'w') as f:
             json.dump(history, f, indent=2)
 
+    def fetch_open_orders(self, symbol=None):
+        if self.dry_run:
+            return []
+        try:
+            if symbol:
+                return self.exchange.fetch_open_orders(symbol)
+            else:
+                # Iterate through pairs if bulk fetch fails or is not supported
+                # NOTE: In a real production bot, we'd use websocket or private user data stream
+                all_orders = []
+                for s in Config.TRADING_PAIRS:
+                    try:
+                        orders = self.exchange.fetch_open_orders(s)
+                        if orders: all_orders.extend(orders)
+                        time.sleep(0.1) # Small delay to respect rate limits
+                    except: pass
+                return all_orders
+        except Exception as e:
+            logger.error(f"Error fetching open orders: {e}")
+            return []
+
+    def _normalize_symbol(self, symbol):
+        """Normalize symbol for robust matching (e.g. TRUMP/USDT:USDT or TRUMP/USDT -> TRUMPUSDT)"""
+        if not symbol: return ""
+        # 1. Take part before ':'
+        # 2. Remove '/'
+        # 3. Uppercase
+        return str(symbol).split(':')[0].replace('/', '').upper()
+
     def fetch_positions(self, symbols=None):
         if self.dry_run:
             positions = self._load_dry_positions()
@@ -311,8 +407,41 @@ class ExchangeHandler:
         else:
             try:
                 positions = self.exchange.fetch_positions(symbols)
-                return [p for p in positions if float(p['contracts']) > 0]
+                managed = [p for p in positions if float(p.get('contracts', 0)) > 0]
+                
+                # 🚀 Merge with local metadata (SL, TP, etc.)
+                local_data = self._load_dry_positions()
+                norm_local = {self._normalize_symbol(m['symbol']): m for m in local_data}
+                
+                for p in managed:
+                    p_norm = self._normalize_symbol(p['symbol'])
+                    meta = norm_local.get(p_norm)
+                    
+                    # Use exact fields from Binance info for perfect sync
+                    if 'info' in p:
+                        # 🎯 DIRECT SYNC: Use 'unrealizedProfit' from Binance info
+                        p['unrealizedPnl'] = float(p['info'].get('unrealizedProfit', p.get('unrealizedPnl', 0)))
+                        p['markPrice'] = float(p['info'].get('markPrice', p.get('markPrice', 0)))
+                        p['entryPrice'] = float(p['info'].get('entryPrice', p.get('entryPrice', 0)))
+                        
+                        # Use positionInitialMargin or isolatedWallet for margin
+                        p['initialMargin'] = float(p['info'].get('isolatedWallet', 0))
+                        if p['initialMargin'] == 0:
+                            p['initialMargin'] = float(p['info'].get('positionInitialMargin', 0))
+                        
+                        if float(p['initialMargin']) == 0:
+                            # Final fallback calculation
+                            p['initialMargin'] = abs(float(p['info'].get('positionAmt', 0)) * float(p['info'].get('entryPrice', 0))) / float(p.get('leverage', 10))
+                    else:
+                        p['unrealizedPnl'] = float(p.get('unrealizedPnl', 0))
+                    
+                    if meta:
+                        for key in ['sl', 'tp1', 'tp2', 'tp3', 'leverage', 'tp1_done', 'tp2_done', 'tp3_done', 'entryTime', 'tp1_time', 'tp2_time', 'tp3_time', 'tp1_usd', 'tp2_usd', 'tp3_usd', 'sl_order_id', 'realizedPnl']:
+                            if key in meta and meta[key] is not None:
+                                p[key] = meta[key]
+                return managed
             except Exception as e:
+                logger.error(f"Error fetching live positions: {e}")
                 return []
 
     def fetch_ticker(self, symbol):
@@ -324,13 +453,32 @@ class ExchangeHandler:
 
     def update_position_metadata(self, symbol, updates):
         """
-        Updates metadata (like SL, TP status) for an existing dry-run position.
+        Updates metadata (like SL, TP status) for an existing position (dry-run or live).
         """
-        if not self.dry_run: return
-        
         positions = self._load_dry_positions()
+        target_norm = self._normalize_symbol(symbol)
+        found = False
         for pos in positions:
-            if pos['symbol'] == symbol:
+            if self._normalize_symbol(pos['symbol']) == target_norm:
                 pos.update(updates)
+                found = True
                 break
+        
+        if not found:
+            new_meta = {'symbol': symbol}
+            new_meta.update(updates)
+            positions.append(new_meta)
+            
         self._save_dry_positions(positions)
+
+    def price_to_precision(self, symbol, price):
+        if self.dry_run: return price
+        try:
+            return float(self.exchange.price_to_precision(symbol, price))
+        except: return price
+
+    def amount_to_precision(self, symbol, amount):
+        if self.dry_run: return amount
+        try:
+            return float(self.exchange.amount_to_precision(symbol, amount))
+        except: return amount

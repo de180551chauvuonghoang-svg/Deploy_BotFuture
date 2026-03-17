@@ -70,6 +70,8 @@ class SMCStrategy:
             "bias": bias,
             "regime": regime,
             "ob_hit": ob_hit is not None,
+            "ob_hit_top": ob_hit['top'] if ob_hit else None,
+            "ob_hit_bottom": ob_hit['bottom'] if ob_hit else None,
             "fvg_hit": fvg_hit is not None,
             "liquidity_sweep": sweep['swept'],
             "score": score
@@ -95,15 +97,10 @@ class SMCStrategy:
         else:
             entry_px = curr_px # Fallback for FVG
             
-        atr_15m_all = ta.atr(df_15m['high'], df_15m['low'], df_15m['close'])
-        atr_15m = atr_15m_all.iloc[-1]
-        risk_data = calculate_smart_sl_tp(bias, entry_px, ob_hit, atr_15m, balance, score)
-        
-        if not risk_data:
-            return {"signal": "NONE", "reason": "Risk distance too large", "confluences": confluences}
-
-        # 7. AI Confidence Filter (NEW)
+        # 6. AI Confidence Filter (NEW - Moved up for Dynamic TP)
         ai_confidence = 1.0
+        confluences['ai_confidence'] = ai_confidence
+        
         try:
             from ai.inference import ai_engine
             
@@ -115,22 +112,18 @@ class SMCStrategy:
             ema200_h4 = df_4h['ema_200'].iloc[-1] if 'ema_200' in df_4h.columns else df_4h['close'].iloc[-1]
             dist_ema200 = (df_4h['close'].iloc[-1] - ema200_h4) / ema200_h4 if ema200_h4 > 0 else 0
             
-            sl_dist_pct = abs(entry_px - risk_data['sl']) / entry_px
-            tp_dist_pct = abs(risk_data['tp1'] - entry_px) / entry_px
-            rr = tp_dist_pct / sl_dist_pct if sl_dist_pct > 0 else 1.0
-            
-            curr = df_15m.iloc[-1]
-            body_ratio = abs(curr['close'] - curr['open']) / (curr['high'] - curr['low']) if (curr['high'] - curr['low']) > 0 else 0
+            sl_est_dist = abs(entry_px - low_15m) / entry_px # Rough estimate for AI features
+            tp_est_dist = sl_est_dist * Config.TP1_RR
             
             features = {
                 'score': score,
                 'rsi_15m': rsi_15m,
                 'vol_ratio_15m': vol_ratio,
                 'dist_ema200_h4': dist_ema200,
-                'sl_dist_pct': sl_dist_pct,
-                'tp_dist_pct': tp_dist_pct,
-                'rr': rr,
-                'body_ratio': body_ratio,
+                'sl_dist_pct': sl_est_dist,
+                'tp_dist_pct': tp_est_dist,
+                'rr': Config.TP1_RR,
+                'body_ratio': 0.5, # Default
                 'vol_24h_usdt': (df_15m['volume'] * df_15m['close']).rolling(window=96).sum().iloc[-1],
                 'side': 1 if bias == 'LONG' else 0
             }
@@ -142,6 +135,14 @@ class SMCStrategy:
                 return {"signal": "NONE", "reason": f"AI Confidence {ai_confidence:.1%} below threshold ({Config.AI_CONFIDENCE_THRESHOLD:.0%})", "confluences": confluences}
         except Exception as e:
             print(f"⚠️ AI Inference skipped: {e}")
+
+        # 7. Risk Calculation (Now with AI awareness)
+        atr_15m_all = ta.atr(df_15m['high'], df_15m['low'], df_15m['close'])
+        atr_15m = atr_15m_all.iloc[-1]
+        risk_data = calculate_smart_sl_tp(bias, entry_px, ob_hit, atr_15m, balance, score, ai_confidence)
+        
+        if not risk_data:
+            return {"signal": "NONE", "reason": "Risk distance too large", "confluences": confluences}
 
         return {
             "signal": bias,
@@ -157,3 +158,60 @@ class SMCStrategy:
             "confluences": confluences,
             "reason": f"SMC {bias} | Score: {score:.1f} | AI: {ai_confidence:.1%}"
         }
+
+    def check_early_exit(self, symbol, side, df_15m, df_1h, p_info) -> tuple:
+        """
+        🛡️ AI REVERSAL SHIELD: Analyzes if an active trade should be closed early 
+        to avoid a full Stop Loss hit during market reversals.
+        Returns: (should_exit, reason)
+        """
+        if df_15m is None or len(df_15m) < 10: return False, ""
+        
+        curr_price = df_15m['close'].iloc[-1]
+        prev_price = df_15m['close'].iloc[-2]
+        side = side.upper()
+        
+        # 1. EMERGENCE OF OPPOSITE STRUCTURE (CHoCH)
+        # Using 15m for faster reaction
+        struct_15m = detect_structure(df_15m, lookback=50)
+        # If we are LONG and signal is SHORT (Bias flipped), exit.
+        if (side == 'LONG' and struct_15m['bias'] == 'SHORT') or \
+           (side == 'SHORT' and struct_15m['bias'] == 'LONG'):
+            return True, f"🛡️ AI Shield: CHoCH Reversal detected on 15m ({struct_15m['reason']})"
+
+        # 2. MOMENTUM REVERSAL (V-Top/Bottom) 
+        # Check for large counter-trend candle (1.8x ATR) 
+        import pandas_ta as ta
+        atr_all = ta.atr(df_15m['high'], df_15m['low'], df_15m['close'])
+        atr = atr_all.iloc[-1] if atr_all is not None else 0
+        candle_size = abs(df_15m['close'].iloc[-1] - df_15m['open'].iloc[-1])
+        
+        is_bearish_impulse = (side == 'LONG' and curr_price < prev_price and candle_size > 1.8 * atr)
+        is_bullish_impulse = (side == 'SHORT' and curr_price > prev_price and candle_size > 1.8 * atr)
+        
+        if (is_bearish_impulse or is_bullish_impulse) and atr > 0:
+            return True, "🛡️ AI Shield: Extreme Counter-Momentum Impulse detected."
+
+        # 3. REGIME DEGRADATION NEAR SL
+        # If price is within 20% of SL distance and regime becomes AVOID
+        sl_val = float(p_info.get('sl', 0))
+        if sl_val > 0:
+            dist_to_sl = abs(curr_price - sl_val)
+            entry_to_sl = abs(p_info['entry'] - sl_val)
+            # If we've already lost 80% of the way to SL
+            if dist_to_sl < 0.2 * entry_to_sl:
+                regime_h1 = get_regime(df_1h)
+                if regime_h1 == "AVOID":
+                    return True, "🛡️ AI Shield: Market Regime degraded to AVOID while near SL."
+
+        # 4. ORDER BLOCK VIOLATION (Support/Resistance Failure)
+        # If price closes beyond the original entry OB zone, the setup logic is invalidated.
+        ob_top = p_info.get('ob_top')
+        ob_bot = p_info.get('ob_bottom')
+        if ob_top is not None and ob_bot is not None:
+            if side == 'LONG' and curr_price < ob_bot:
+                return True, "🛡️ AI Shield: Support OB Zone violated (Price closed below OB)."
+            if side == 'SHORT' and curr_price > ob_top:
+                return True, "🛡️ AI Shield: Resistance OB Zone violated (Price closed above OB)."
+
+        return False, ""

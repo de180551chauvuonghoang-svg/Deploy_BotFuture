@@ -1,10 +1,12 @@
 import pandas as pd
 import pandas_ta as ta
 
-def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score):
+def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score, ai_confidence=1.0):
     """
-    Calculates dynamic SL/TP and position size based on SMC zones.
+    Calculates dynamic SL/TP and position size based on SMC zones and AI Analysis.
     """
+    from config.config import Config
+    
     # 1. Stop Loss Placement
     if ob:
         # Buffer SL with ATR to avoid liquidity sweeps (0.5x ATR)
@@ -27,8 +29,6 @@ def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score):
     sl_dist = abs(entry - sl)
 
     # 2. Position Sizing (Fixed Risk Per Trade Model)
-    from config.config import Config
-    
     # Scale risk from 1.0% to 2.0% based on score
     risk_pct = Config.BASE_RISK_PCT
     if score >= 9.0:
@@ -44,10 +44,24 @@ def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score):
     if position_size > max_size_by_margin:
         position_size = max_size_by_margin
 
-    # 3. Take Profit (Sniper Sniper Targets: 1.2R / 3.5R / 7.0R)
-    tp1 = entry + (sl_dist * 1.2) if side == "LONG" else entry - (sl_dist * 1.2)
-    tp2 = entry + (sl_dist * 3.5) if side == "LONG" else entry - (sl_dist * 3.5)
-    tp3 = entry + (sl_dist * 7.0) if side == "LONG" else entry - (sl_dist * 7.0)
+    # 3. Take Profit (Dynamic Scaling based on AI Win Probability)
+    tp1_rr, tp2_rr, tp3_rr = Config.TP1_RR, Config.TP2_RR, Config.TP3_RR
+    
+    if Config.USE_AI_DYNAMIC_TP:
+        # AI Logic: 
+        # If AI is super confident (90%+), we trust the trend and extend TP.
+        # If AI is barely confident (80%), we take quick profit.
+        # Base multiplier centered at AI 85%
+        ai_mult = (ai_confidence - 0.70) / 0.15 # 0.85 -> 1.0, 0.95 -> 1.66
+        ai_mult = max(0.8, min(1.5, ai_mult))   # Clamp between 80% and 150% of base TP
+        
+        tp1_rr *= ai_mult
+        tp2_rr *= ai_mult
+        tp3_rr *= ai_mult
+
+    tp1 = entry + (sl_dist * tp1_rr) if side == "LONG" else entry - (sl_dist * tp1_rr)
+    tp2 = entry + (sl_dist * tp2_rr) if side == "LONG" else entry - (sl_dist * tp2_rr)
+    tp3 = entry + (sl_dist * tp3_rr) if side == "LONG" else entry - (sl_dist * tp3_rr)
     
     return {
         "sl": sl,

@@ -8,3 +8,6 @@ streamlit
 requests
 psutil
 tabulate
+plotly
+joblib
+scikit-learn

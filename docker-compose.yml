@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  trading-bot:
+    build: .
+    container_name: trading-bot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: python main.py
+
+  dashboard:
+    build: .
+    container_name: trading-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: streamlit run dashboard/app.py --server.headless true --server.port 8501
+
+volumes:
+  data:
+  logs:

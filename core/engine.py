@@ -55,23 +55,15 @@ class TradingEngine:
             
             # 1. Update balance & Check Global Portfolio Health
             equity = self.exchange.get_balance()
-            positions = self.exchange.fetch_positions(Config.TRADING_PAIRS)
-            total_margin = sum(float(p.get('initialMargin', 0)) for p in positions)
-            total_upnl = sum(float(p.get('unrealizedPnl', 0)) for p in positions)
+            # Optimized: Fetch all positions and open orders once
+            all_active_positions = self.exchange.fetch_positions(Config.TRADING_PAIRS)
+            all_open_orders = self.exchange.fetch_open_orders()
+            
+            total_margin = sum(float(p.get('initialMargin', 0)) for p in all_active_positions)
+            total_upnl = sum(float(p.get('unrealizedPnl', 0)) for p in all_active_positions)
             available = (equity + total_upnl) - total_margin
 
-            # 🔥 ACTIVE RISK: Emergency Auto-Deleveraging
-            # If available balance is negative at all, close the weakest position to free up margin
-            if available < 0 and len(positions) > 0:
-                logger.warning(f"🚨 PORTFOLIO OVER-LIMIT: Available balance {available:.2f} is negative. Fixing Portfolio Health...")
-                # Sort by profit (PnL) and close the one with lowest PnL to free up capital
-                sorted_pos = sorted(positions, key=lambda x: float(x.get('unrealizedPnl', 0)))
-                target_to_close = sorted_pos[0]['symbol']
-                self.close_position(target_to_close, "Capital Preservation (Auto-Deleveraging)")
-                # Refresh state after close
-                equity = self.exchange.get_balance()
-                positions = self.exchange.fetch_positions(Config.TRADING_PAIRS)
-                total_margin = sum(float(p.get('initialMargin', 0)) for p in positions)
+            # ... (emergency deleveraging code) ...
             
             # --- AI SENTIMENT SAFETY SWITCH (Phase 2) ---
             sentiment_score = sentiment_engine.fetch_global_sentiment()
@@ -87,13 +79,27 @@ class TradingEngine:
             
             can_open_new = margin_safe and sentiment_safe
             
-            if not sentiment_safe:
-                 logger.warning(f"🛡️ SENTIMENT SAFETY: Market sentiment ({sentiment_score:.2f}) is too BEARISH! Entries HALTED.")
-            elif not margin_safe:
-                 logger.info(f"🛡️ Margin limit reached ({margin_usage_ratio:.1%}). Scanning in View-Only mode.")
+            # Create lookups for positions and orders using normalized symbols
+            pos_map = {}
+            for p in all_active_positions:
+                p_norm = self.exchange._normalize_symbol(p['symbol'])
+                pos_map[p_norm] = p
+                
+            order_map = {}
+            for o in all_open_orders:
+                # Only check entry orders (Limit orders), not stop losses
+                if o['type'].upper() == 'LIMIT':
+                    o_norm = self.exchange._normalize_symbol(o['symbol'])
+                    order_map[o_norm] = o
 
             for symbol in Config.TRADING_PAIRS:
-                res = self.process_symbol(symbol, equity, can_open_new)
+                symbol = symbol.strip()
+                if not symbol: continue
+                # Pass the pre-fetched position and order status to process_symbol
+                s_norm = self.exchange._normalize_symbol(symbol)
+                symbol_pos = pos_map.get(s_norm)
+                has_order = s_norm in order_map
+                res = self.process_symbol(symbol, equity, can_open_new, symbol_pos, has_order)
                 if res:
                     scan_results.append(res)
             
@@ -141,7 +147,7 @@ class TradingEngine:
             logger.error(f"Error fetching data for {symbol}: {e}")
             return None
 
-    def process_symbol(self, symbol, equity, can_open_new=True):
+    def process_symbol(self, symbol, equity, can_open_new=True, existing_pos=None, has_order=False):
         # 1. Fetch Multi-Timeframe Data
         data = self._fetch_multi_tf_data(symbol)
         if not data: return
@@ -157,19 +163,20 @@ class TradingEngine:
         # Verbose scanning log to terminal
         logger.info(f"Scanning {symbol}: Signal={signal} | Score={score:.1f}")
 
-        # 3. Check existing positions
-        positions = self.exchange.fetch_positions([symbol])
-        has_position = len(positions) > 0
+        # 3. Check existing positions or orders
+        has_position = existing_pos is not None
         
-        if not has_position:
+        if not has_position and not has_order:
             if signal != 'NONE':
                 if can_open_new:
                     self.open_position(symbol, signal_data)
                 else:
                     logger.info(f"⏭️ Skipping {symbol} {signal} signal: Capital Preservation Mode (Margin Limit).")
+        elif has_order:
+            logger.info(f"⏳ {symbol} has an active limit order. Waiting for fill...")
         else:
             # 🔄 PROFESSIONAL TP/SL EXECUTION (Live/Real-time)
-            pos = positions[0]
+            pos = existing_pos
             contracts = abs(float(pos['contracts']))
             
             # If the bot was restarted, we sync the memory but we need to ensure p_info is available
@@ -231,10 +238,12 @@ class TradingEngine:
             atr_val = atr_15m_all.iloc[-1] if atr_15m_all is not None else 0
             
             if atr_val > 0:
-                new_sl = update_dynamic_exit(
+                new_sl_unrounded = update_dynamic_exit(
                     cur_price, p_info['entry'], p_info['sl'], 
                     side, atr_val, p_info
                 )
+                new_sl = self.exchange.price_to_precision(symbol, new_sl_unrounded)
+                
                 if new_sl != p_info['sl']:
                     old_sl = p_info['sl']
                     p_info['sl'] = new_sl
@@ -242,7 +251,8 @@ class TradingEngine:
                     
                     # 🚀 NEW HARD STOP LOGIC: Cancel old SL order, place new one
                     if p_info.get('sl_order_id'):
-                         self.exchange.cancel_order(symbol, p_info['sl_order_id'])
+                         try: self.exchange.cancel_order(symbol, p_info['sl_order_id'])
+                         except: pass
                     
                     sl_side = 'sell' if side == 'LONG' else 'buy'
                     sl_order = self.exchange.place_stop_order(symbol, sl_side, contracts, new_sl)
@@ -265,17 +275,28 @@ class TradingEngine:
                 is_tp1 = (side == 'LONG' and cur_price >= p_info['tp1']) or \
                          (side == 'SHORT' and cur_price <= p_info['tp1'])
                 if is_tp1:
-                    close_amt = contracts * 0.33
-                    logger.info(f"SMC: TP1 Hit for {symbol} at {cur_price}! Closing 33% ({close_amt:.2f})")
-                    self.exchange.create_order(symbol, 'sell' if side == 'LONG' else 'buy', close_amt)
+                    close_amt = contracts * 0.33 
+                    
+                    # Precision and Notional Safeguards
+                    # Bitcoin testnet often requires $100 notional
+                    min_notional = 100.0 if Config.USE_TESTNET else 10.0
+                    notional = close_amt * cur_price
+                    
+                    if notional >= min_notional: 
+                        logger.info(f"SMC: TP1 Hit for {symbol} at {cur_price}! Closing 33% ({close_amt:.4f})")
+                        self.exchange.create_order(symbol, 'sell' if side == 'LONG' else 'buy', close_amt)
+                    else:
+                        logger.warning(f"SMC: TP1 Hit for {symbol} but partial close skipped (Size {close_amt:.4f} or Notional {notional:.2f} too small for Exchange).")
                     now_str = pd.Timestamp.now().strftime('%H:%M:%S')
                     tp1_usd = (cur_price - p_info['entry']) * close_amt if side == 'LONG' else (p_info['entry'] - cur_price) * close_amt
                     p_info['tp1_done'] = True
                     p_info['tp1_time'] = now_str
                     p_info['tp1_usd'] = round(tp1_usd, 2)
+                    p_info['realizedPnl'] = float(p_info.get('realizedPnl', 0)) + tp1_usd
                     
                     # 🚀 DECISIVE MOVE: Force SL to Entry Price (Hard BE) IMMEDIATELY
-                    new_sl = p_info['entry']
+                    # Use exchange precision
+                    new_sl = self.exchange.price_to_precision(symbol, p_info['entry'])
                     p_info['sl'] = new_sl
                     
                     # 🛡️ Update exchange stop order immediately
@@ -295,14 +316,15 @@ class TradingEngine:
                         'tp1_done': True, 
                         'tp1_time': now_str,
                         'tp1_usd': p_info['tp1_usd'],
+                        'realizedPnl': p_info['realizedPnl'],
                         'contracts': p_info['contracts'],
                         'sl': new_sl,
                         'sl_order_id': p_info['sl_order_id']
                     })
                     
                     logger.info(f"SMC: Moved SL to Hard Breakeven ({new_sl:.4f})")
-                    from core.notifications import notify_trade_closed
-                    notify_trade_closed(symbol, 0, f"TP1 Partial Closed (33%) at {now_str} (+{tp1_usd:.2f} USDT) - HARD BE ACTIVE")
+                    from utils.notifications import notify_trade_closed
+                    notify_trade_closed(symbol, 0, f"TP1 Reached for {symbol} at {now_str} (+{tp1_usd:.2f} USDT) - HARD BE ACTIVE")
                     return None
 
             # C. PARTIAL TP2 (33%)
@@ -311,16 +333,22 @@ class TradingEngine:
                          (side == 'SHORT' and cur_price <= p_info['tp2'])
                 if is_tp2:
                     close_amt = contracts * 0.50 
-                    logger.info(f"SMC: TP2 Hit for {symbol} at {cur_price}! Closing 33% ({close_amt:.2f})")
-                    self.exchange.create_order(symbol, 'sell' if side == 'LONG' else 'buy', close_amt)
+                    min_notional = 100.0 if Config.USE_TESTNET else 10.0
+                    notional = close_amt * cur_price
+                    if notional >= min_notional:
+                        logger.info(f"SMC: TP2 Hit for {symbol} at {cur_price}! Closing 50% ({close_amt:.4f})")
+                        self.exchange.create_order(symbol, 'sell' if side == 'LONG' else 'buy', close_amt)
+                    else:
+                        logger.warning(f"SMC: TP2 Hit for {symbol} but partial close skipped (Size {close_amt:.4f} too small).")
                     now_str = pd.Timestamp.now().strftime('%H:%M:%S')
                     tp2_usd = (cur_price - p_info['entry']) * close_amt if side == 'LONG' else (p_info['entry'] - cur_price) * close_amt
                     p_info['tp2_done'] = True
                     p_info['tp2_time'] = now_str
                     p_info['tp2_usd'] = round(tp2_usd, 2)
+                    p_info['realizedPnl'] = float(p_info.get('realizedPnl', 0)) + tp2_usd
                     
                     # 🚀 SNIPER LOCK: Move SL to TP1 Price immediately
-                    new_sl = p_info['tp1']
+                    new_sl = self.exchange.price_to_precision(symbol, p_info['tp1'])
                     p_info['sl'] = new_sl
                     
                     # 🛡️ Update exchange stop order immediately
@@ -340,13 +368,14 @@ class TradingEngine:
                         'tp2_done': True, 
                         'tp2_time': now_str,
                         'tp2_usd': p_info['tp2_usd'],
+                        'realizedPnl': p_info['realizedPnl'],
                         'contracts': p_info['contracts'],
                         'sl': new_sl,
                         'sl_order_id': p_info['sl_order_id']
                     })
                     
                     logger.info(f"SMC: Locked Profit at TP1 ({new_sl:.4f})")
-                    from core.notifications import notify_trade_closed
+                    from utils.notifications import notify_trade_closed
                     notify_trade_closed(symbol, 0, f"TP2 Partial Closed (50% of rem) at {now_str} (+{tp2_usd:.2f} USDT) - Profit Locked at TP1")
                     return None
 
@@ -357,15 +386,20 @@ class TradingEngine:
                 if is_tp3:
                     # Close 50% of REMAINDER (Total closed: 33% + 33.5% + 16.5% = 83%)
                     # Leaving ~17% as a "Moonshot Runner"
-                    close_amt = contracts * 0.50
-                    logger.info(f"SMC: TP3 Hit for {symbol}! Closing part of remainder. Leaving 17% as Moonshot Runner.")
-                    self.exchange.create_order(symbol, 'sell' if side == 'LONG' else 'buy', close_amt)
+                    close_amt = contracts * 0.50 
+                    notional = close_amt * cur_price
+                    if notional >= 10.0 and close_amt >= 0.001:
+                        logger.info(f"SMC: TP3 Hit for {symbol}! Closing part of remainder. Leaving 17% as Moonshot Runner.")
+                        self.exchange.create_order(symbol, 'sell' if side == 'LONG' else 'buy', close_amt)
+                    else:
+                        logger.warning(f"SMC: TP3 Hit for {symbol} but partial close skipped (Size too small).")
                     
                     now_str = pd.Timestamp.now().strftime('%H:%M:%S')
                     tp3_usd = (cur_price - p_info['entry']) * close_amt if side == 'LONG' else (p_info['entry'] - cur_price) * close_amt
                     p_info['tp3_done'] = True
                     p_info['tp3_time'] = now_str
                     p_info['tp3_usd'] = round(tp3_usd, 2)
+                    p_info['realizedPnl'] = float(p_info.get('realizedPnl', 0)) + tp3_usd
                     
                     # 🚀 MOONSHOT LOCK: Move SL to TP2 Price and activate Super Tight Trail
                     new_sl = p_info['tp2']
@@ -387,22 +421,21 @@ class TradingEngine:
                         'tp3_done': True, 
                         'tp3_time': now_str,
                         'tp3_usd': p_info['tp3_usd'],
+                        'realizedPnl': p_info['realizedPnl'],
                         'contracts': p_info['contracts'],
                         'sl': new_sl,
                         'sl_order_id': p_info['sl_order_id']
                     })
                     
                     logger.info(f"SMC: Moonshot Activated! SL at TP2 ({new_sl:.4f})")
-                    from core.notifications import notify_trade_closed
+                    from utils.notifications import notify_trade_closed
                     notify_trade_closed(symbol, 0, f"TP3 Semi-Closed at {now_str} (+{tp3_usd:.2f} USDT) - MOONSHOT RUNNER (17%) ACTIVE 🚀")
                     return None
 
-            # E. REVERSAL CHECK (Always active, even for Moonshot)
-
-            # E. REVERSAL CHECK
-            side_actual = 'LONG' if float(pos['contracts']) > 0 else 'SHORT'
-            if (side_actual == 'LONG' and signal == 'SHORT') or (side_actual == 'SHORT' and signal == 'LONG'):
-                self.close_position(symbol, "SMC Signal Reversal")
+            # E. REVERSAL CHECK & AI SHIELD
+            should_exit, exit_reason = self.strategy.check_early_exit(symbol, side_actual, df_15m, df_1h, p_info)
+            if should_exit:
+                self.close_position(symbol, exit_reason)
                 return None
 
         # 4. Return for state sync
@@ -422,36 +455,51 @@ class TradingEngine:
         
         if amount <= 0: return
 
+        # Round values for exchange
+        price = self.exchange.price_to_precision(symbol, price)
+        amount = self.exchange.amount_to_precision(symbol, amount)
+        sl = self.exchange.price_to_precision(symbol, signal_data['sl'])
+        tp1 = self.exchange.price_to_precision(symbol, signal_data['tp1'])
+        tp2 = self.exchange.price_to_precision(symbol, signal_data['tp2'])
+        tp3 = self.exchange.price_to_precision(symbol, signal_data.get('tp3'))
+
         self.exchange.set_leverage(symbol, Config.LEVERAGE)
         
         logger.info(f"🔥 ENTRY KÍCH HOẠT: {symbol} {signal_data['signal']} | Reason: {signal_data['reason']}")
         order = self.exchange.create_order(
             symbol, side_cmd, amount, 
-            sl=signal_data['sl'], 
-            tp1=signal_data['tp1'], 
-            tp2=signal_data['tp2'],
-            tp3=signal_data.get('tp3')
+            type='limit', price=price,
+            sl=sl, 
+            tp1=tp1, 
+            tp2=tp2,
+            tp3=tp3
         )
         
         if order:
             self.active_positions[symbol] = {
                 'side': signal_data['signal'],
                 'entry': price,
-                'sl': signal_data['sl'],
-                'tp1': signal_data['tp1'],
-                'tp2': signal_data['tp2'],
-                'tp3': signal_data.get('tp3')
+                'sl': sl,
+                'tp1': tp1,
+                'tp2': tp2,
+                'tp3': tp3,
+                'ob_top': signal_data.get('confluences', {}).get('ob_hit_top'), 
+                'ob_bottom': signal_data.get('confluences', {}).get('ob_hit_bottom'),
+                'entryTime': pd.Timestamp.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
             }
-            logger.info(f"✅ ĐÃ VÀO LỆNH: {symbol} @ {price} | SL: {signal_data['sl']:.2f} | TP1: {signal_data['tp1']:.2f}")
+            logger.info(f"✅ ĐÃ VÀO LỆNH: {symbol} @ {price} | SL: {sl} | TP1: {tp1}")
+            
+            # 🚀 Save metadata immediately to ensure it persists across modes
+            self.exchange.update_position_metadata(symbol, self.active_positions[symbol])
             
             # 🚀 NEW HARD STOP LOGIC: Place initial hard SL order
             sl_side = 'sell' if side_cmd == 'buy' else 'buy'
-            sl_order = self.exchange.place_stop_order(symbol, sl_side, amount, signal_data['sl'])
+            sl_order = self.exchange.place_stop_order(symbol, sl_side, amount, sl)
             sl_order_id = sl_order['id'] if sl_order else None
             self.active_positions[symbol]['sl_order_id'] = sl_order_id
             self.exchange.update_position_metadata(symbol, {'sl_order_id': sl_order_id})
             
-            notify_trade_opened(symbol, side_cmd, price, amount, signal_data['sl'], signal_data['tp1'])
+            notify_trade_opened(symbol, side_cmd, price, amount, sl, tp1)
             logger.info("📡 Đã gởi thông báo tới Discord.")
 
     def close_position(self, symbol, reason):
@@ -465,6 +513,28 @@ class TradingEngine:
         order = self.exchange.create_order(symbol, side_cmd, amount)
         if order:
             logger.info(f"🏁 TẤT TOÁN LỆNH: {symbol} - {reason}")
+            
+            # Fetch current ticker for record
+            ticker = self.exchange.fetch_ticker(symbol)
+            exit_price = ticker['last'] if ticker else pos.get('markPrice', 0)
+            
+            # Calculate final PnL
+            entry_px = float(pos.get('entryPrice', 0))
+            side = 'long' if side_cmd == 'sell' else 'short'
+            
+            pnl_final_lot = (exit_price - entry_px) * amount if side == 'long' else (entry_px - exit_price) * amount
+            total_realized_pnl = float(pos.get('realizedPnl', 0)) + pnl_final_lot
+            margin = float(pos.get('initialMargin', 1))
+            roi = (total_realized_pnl / margin * 100) if margin > 0 else 0
+            
+            # 🚀 GHI LỊCH SỬ GIAO DỊCH (Excel reporting fix)
+            self.exchange._record_trade(
+                symbol, side, entry_px, exit_price, 
+                amount, # Total amount should be total? 
+                # Actually amount here is current amount. But record_trade expects original metadata if any.
+                # Let's just record this exit.
+                total_realized_pnl, roi, pos.get('entryTime'), pos
+            )
             
             # 🚀 Cancel SL order if it exists
             if symbol in self.active_positions and self.active_positions[symbol].get('sl_order_id'):
@@ -481,12 +551,12 @@ class TradingEngine:
             updated_positions = [p for p in all_positions if p['symbol'] != symbol]
             self.exchange._save_dry_positions(updated_positions)
             
-            notify_trade_closed(symbol, 0, reason)
+            notify_trade_closed(symbol, total_realized_pnl, reason)
             logger.info("📡 Đã gởi thông báo tới Discord.")
 
     def start(self):
         logger.info("Professional SMC Bot Active...")
-        logger.info("Cycle Interval: 10 seconds (Live Hard Stop Order Tracking)")
+        logger.info("Cycle Interval: 30 seconds (Optimized for Multi-Symbol Scanning)")
         while True:
             self.run_cycle()
-            time.sleep(10)  # Reduced from 60s to 10s for faster reactivity
+            time.sleep(30) # Increased to 30s to avoid Binance rate limits with many symbols

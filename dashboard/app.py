@@ -165,6 +165,22 @@ def show_realtime_data():
             tp1_style = "text-decoration: line-through; opacity: 0.5;" if tp1_done else ""
             tp1_check = "✅" if tp1_done else ""
             
+            # 🕒 Calculate duration
+            entry_time_raw = pos.get('entryTime')
+            duration_str = "N/A"
+            if entry_time_raw:
+                try:
+                    entry_dt = pd.to_datetime(entry_time_raw, utc=True)
+                    now_dt = pd.Timestamp.now(tz='UTC')
+                    diff = now_dt - entry_dt
+                    total_seconds = int(diff.total_seconds())
+                    if total_seconds >= 0:
+                        hours, remainder = divmod(total_seconds, 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        duration_str = f"{hours}h {minutes}m"
+                except:
+                    pass
+            
             tp2_done = pos.get('tp2_done', False)
             tp2_style = "text-decoration: line-through; opacity: 0.5;" if tp2_done else ""
             tp2_check = "✅" if tp2_done else ""
@@ -196,6 +212,7 @@ def show_realtime_data():
         <div>
             <span style="font-size: 20px; font-weight: bold; color: {color};">{pos['symbol']}</span>
             <span style="background-color: {color}; color: white; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 10px; font-family: 'Orbitron';">{side} {leverage}x</span>
+            <span style="background-color: rgba(255,255,255,0.1); color: #848e9c; padding: 2px 8px; border-radius: 3px; font-size: 11px; margin-left: 5px; font-family: 'Orbitron';">🕒 {duration_str}</span>
             <div style="margin-top: 5px;">{sniper_html}</div>
         </div>
         <div style="text-align: right;">
@@ -207,7 +224,7 @@ def show_realtime_data():
     </div>
     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 15px;">
         <div>
-            <p style="margin: 0; color: #848e9c; font-size: 13px;">Size</p>
+            <p style="margin: 0; color: #848e9c; font-size: 13px;">Size ({pos['symbol'].split('/')[0]})</p>
             <p style="margin: 0; font-weight: 500;">{contracts:.4f}</p>
         </div>
         <div>

@@ -39,15 +39,11 @@ class Backtester:
 
         print(f"Running backtest on {len(df_15m)} units...")
         
-        # State caching for speed
-        last_4h_time = None
-        last_1h_time = None
-        current_structure = None
-        current_zones = None
-        
-        # Pre-calculate time masks for faster lookup
         df_1h_idx = df_1h.index
         df_4h_idx = df_4h.index
+        
+        last_idx_1h = -1
+        last_idx_4h = -1
         
         for i in range(200, len(df_15m)):
             curr_time = df_15m.index[i]
@@ -61,16 +57,14 @@ class Backtester:
                 continue # Skip entry logic if in position
 
             # 2. SMC State Management (Cache 4H/1H calculations)
-            # Find the latest closed 4H and 1H candles relative to 15m time
-            # We use searchsorted for O(log N) speed instead of O(N) filtering
             idx_1h = df_1h_idx.searchsorted(curr_time, side='right') - 1
             idx_4h = df_4h_idx.searchsorted(curr_time, side='right') - 1
             
             if idx_1h < 50 or idx_4h < 50: continue
             
-            # Only generate complex SMC data if high-timeframe candle changed
-            # or if we need fresh data for the strategy
-            # Note: Strategy still needs the slices to be accurate
+            # OPTIMIZATION: Only run strategy on 15M candle if it's the start of a 15m period
+            # and only if HTF potentially has new data.
+            # For backtest speed, many users only check entries on 15m candle close.
             
             slice_15m = df_15m.iloc[max(0, i-200):i+1]
             slice_1h = df_1h.iloc[max(0, idx_1h-200):idx_1h+1]
@@ -97,12 +91,30 @@ class Backtester:
             'initial_size': signal_data['size'],
             'score': signal_data.get('score', 0),
             'tp1_hit': False,
-            'tp2_hit': False
+            'tp2_hit': False,
+            'tp3_hit': False
         })
 
     def _check_exit(self, row, pos):
-        high, low = row['high'], row['low']
+        high, low, cur_price = row['high'], row['low'], row['close']
+        atr_val = row.get('atr', 0)
         
+        # 0. Dynamic Trailing (ATR-based - MATCHES LIVE)
+        if atr_val > 0:
+            from risk.smart_risk import update_dynamic_exit
+            old_sl = pos['sl']
+            p_info = {
+                'tp1_done': pos['tp1_hit'],
+                'tp2_done': pos['tp2_hit'],
+                'tp3_done': pos.get('tp3_hit', False),
+                'tp1': pos['tp1'],
+                'tp2': pos['tp2'],
+                'tp3': pos['tp3']
+            }
+            new_sl = update_dynamic_exit(cur_price, pos['entry_price'], old_sl, pos['side'], atr_val, p_info)
+            if (pos['side'] == 'LONG' and new_sl > old_sl) or (pos['side'] == 'SHORT' and new_sl < old_sl):
+                pos['sl'] = new_sl
+
         # 1. TP1 Check (Close 33%)
         if not pos['tp1_hit']:
             if (pos['side'] == 'LONG' and high >= pos['tp1']) or \
@@ -125,18 +137,23 @@ class Backtester:
                 # Trail Stop to TP1 to lock in 2R profit
                 pos['sl'] = pos['tp1']
 
-        # 3. TP3 Check (Close final 34%)
-        elif pos['tp2_hit']:
+        # 3. TP3 Check (Close final part)
+        elif pos['tp2_hit'] and not pos['tp3_hit']:
             if (pos['side'] == 'LONG' and high >= pos['tp3']) or \
                (pos['side'] == 'SHORT' and low <= pos['tp3']):
-                self._close_partial(pos, pos['tp3'], row.name, "TP3_FULL", pos['size'])
-                return True
+                pos['tp3_hit'] = True
+                partial_size = pos['initial_size'] * 0.17 # Close half of rem (Total closed 83%)
+                self._close_partial(pos, pos['tp3'], row.name, "TP3_PARTIAL", partial_size)
+                pos['size'] -= partial_size
+                pos['sl'] = pos['tp2']
 
         # 4. SL Check
         if (pos['side'] == 'LONG' and low <= pos['sl']) or \
            (pos['side'] == 'SHORT' and high >= pos['sl']):
-            reason = "BE_STOP" if pos['tp1_hit'] else "STOP_LOSS"
-            if pos['tp2_hit']: reason = "TP1_TRAIL_STOP"
+            reason = "STOP_LOSS"
+            if pos['tp1_hit']: reason = "BE_STOP"
+            if pos['tp2_hit']: reason = "TP1_TRAIL"
+            if pos['tp3_hit']: reason = "TP2_TRAIL"
             self._close_partial(pos, pos['sl'], row.name, reason, pos['size'])
             return True
             

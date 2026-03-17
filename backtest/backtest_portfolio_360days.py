@@ -24,9 +24,10 @@ os.environ['IS_BACKTEST'] = 'true'
 
 # Configuration - EXACT BOT SETTINGS
 CACHE_DIR = "data/cache"
-symbols = Config.TRADING_PAIRS  # 23 pairs
-days_available = 800
-days_to_test = 360  # Full year
+# Prioritize All Pairs from Config
+symbols = [s.strip() for s in Config.TRADING_PAIRS if s.strip()]
+days_available = 180
+days_to_test = 180  # Full 6 months
 initial_capital = 1300
 
 print("=" * 90)

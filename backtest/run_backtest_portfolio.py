@@ -595,7 +595,7 @@ Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 def main():
     symbols = Config.TRADING_PAIRS
-    days = 360 # Testing with latest 360 days as requested
+    days = 90 # Testing with latest 90 days as requested
     exchange = ccxt.binance({'options': {'defaultType': 'future'}})
     strategy = SMCStrategy()
     
