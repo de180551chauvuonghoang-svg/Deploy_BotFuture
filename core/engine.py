@@ -1,4 +1,5 @@
 import time
+import asyncio
 import os
 import json
 import pandas as pd
@@ -49,7 +50,7 @@ class TradingEngine:
         except Exception as e:
             logger.error(f"Lỗi khi đồng bộ vị thế: {e}")
 
-    def run_cycle(self):
+    async def run_cycle(self):
         try:
             logger.info("--- Starting Professional SMC Cycle ---")
             
@@ -564,9 +565,27 @@ class TradingEngine:
             notify_trade_closed(symbol, total_realized_pnl, reason)
             logger.info("📡 Đã gởi thông báo tới Discord.")
 
-    def start(self):
-        logger.info("Professional SMC Bot Active...")
-        logger.info(f"Cycle Interval: {Config.SCAN_INTERVAL} seconds (REST Optimized for High-Symbol Count)")
+    async def start(self):
+        logger.info("🚀 Professional SMC Bot [WebSocket Edition] Active...")
+        
+        # 1. Start background WebSocket tasks
+        symbols = Config.TRADING_PAIRS
+        tasks = [
+            asyncio.create_task(self.exchange.watch_ohlcv_all(symbols, timeframe='15m')),
+            asyncio.create_task(self.exchange.watch_ohlcv_all(symbols, timeframe='1h')),
+            asyncio.create_task(self.exchange.watch_ohlcv_all(symbols, timeframe='4h')),
+            asyncio.create_task(self.exchange.watch_tickers(symbols))
+        ]
+        
+        logger.info(f"⏳ Waiting for WebSocket cache to warm up (10s)...")
+        await asyncio.sleep(10)
+        
+        # 2. Main Trading Loop
         while True:
-            self.run_cycle()
-            time.sleep(Config.SCAN_INTERVAL)
+            try:
+                await self.run_cycle()
+            except Exception as e:
+                logger.error(f"Error in main loop cycle: {e}")
+                
+            logger.info(f"💤 Sleeping for {Config.SCAN_INTERVAL}s between scans...")
+            await asyncio.sleep(Config.SCAN_INTERVAL)

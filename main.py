@@ -15,14 +15,15 @@ def main():
     """
     try:
         logger.info("==================================================")
-        logger.info("  ADVANCED SMC TRADING BOT IS STARTING")
+        logger.info("  ADVANCED SMC TRADING BOT IS STARTING [WS]")
         logger.info("  Regime: Multi-Timeframe (4H, 1H, 15M)")
         logger.info("  Modules: Structure, Order Block, FVG, Confluence")
         logger.info("  Dashboard: http://localhost:8501")
         logger.info("==================================================")
         
+        import asyncio
         engine = TradingEngine()
-        engine.start()
+        asyncio.run(engine.start())
         
     except KeyboardInterrupt:
         logger.info("Bot stopped by user.")

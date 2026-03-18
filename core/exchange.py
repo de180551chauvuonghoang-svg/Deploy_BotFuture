@@ -1,5 +1,7 @@
 import ccxt
+import ccxt.pro as ccxtpro
 import time
+import asyncio
 import pandas as pd
 import json
 import os
@@ -17,7 +19,23 @@ class ExchangeHandler:
         if not os.path.exists("data"):
             os.makedirs("data")
         
-        # Authenticated instance
+        # 🚀 WebSocket / Async Exchange Initialization
+        self.ws_exchange = getattr(ccxtpro, exchange_id)({
+            'apiKey': Config.API_KEY,
+            'secret': Config.API_SECRET,
+            'enableRateLimit': True,
+            'options': {
+                'defaultType': 'future',
+                'adjustForTimeDifference': True,
+            }
+        })
+        
+        # Cache for real-time data
+        self.ohlcv_cache = {} # symbol -> {timeframe: df}
+        self.ticker_cache = {} # symbol -> price
+        self.ws_active = False
+        
+        # Authenticated instance (Synchronous - kept for existing logic stability)
         self.exchange = exchange_class({
             'apiKey': Config.API_KEY,
             'secret': Config.API_SECRET,
@@ -48,6 +66,7 @@ class ExchangeHandler:
             # We use standard mode but surgically hijack URLs just before signing
             self.exchange.set_sandbox_mode(False)
             self.public_exchange.set_sandbox_mode(False)
+            self.ws_exchange.set_sandbox_mode(True) # 🚀 WebSocket Testnet Support
             
             def create_custom_sign(original_sign):
                 def custom_sign(path, api='public', method='GET', params={}, headers=None, body=None):
@@ -86,7 +105,59 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"Error loading market limits: {e}")
 
+    async def watch_ohlcv_all(self, symbols, timeframe='15m'):
+        """
+        Continuous WebSocket loop to watch OHLCV for multiple symbols.
+        """
+        self.ws_active = True
+        logger.info(f"🌐 WebSocket: Starting OHLCV stream for {len(symbols)} symbols ({timeframe})")
+        
+        while self.ws_active:
+            try:
+                # CCXT Pro: watch_ohlcv_for_symbols is efficient for multiple pairs
+                ohlcvs = await self.ws_exchange.watch_ohlcv_for_symbols([[s, timeframe] for s in symbols])
+                
+                for symbol, timeframe_data in ohlcvs.items():
+                    for tf, candles in timeframe_data.items():
+                        df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+                        for col in ['open', 'high', 'low', 'close', 'volume']:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                        df.dropna(subset=['close'], inplace=True)
+                        df.set_index('timestamp', inplace=True)
+                        
+                        if symbol not in self.ohlcv_cache:
+                            self.ohlcv_cache[symbol] = {}
+                        self.ohlcv_cache[symbol][tf] = df
+                        
+            except Exception as e:
+                logger.error(f"WebSocket OHLCV Error: {e}")
+                await asyncio.sleep(5)
+
+    async def watch_tickers(self, symbols):
+        """
+        Continuous WebSocket loop to watch real-time prices (tickers).
+        """
+        logger.info(f"🌐 WebSocket: Starting Ticker stream for {len(symbols)} symbols")
+        while self.ws_active:
+            try:
+                tickers = await self.ws_exchange.watch_tickers(symbols)
+                for symbol, ticker in tickers.items():
+                    self.ticker_cache[symbol] = float(ticker['last'])
+            except Exception as e:
+                logger.error(f"WebSocket Ticker Error: {e}")
+                await asyncio.sleep(5)
+
     def fetch_ohlcv(self, symbol, timeframe='15m', limit=100):
+        # 🎯 High Performance: Use WebSocket Cache if available
+        cache_df = self.ohlcv_cache.get(symbol, {}).get(timeframe)
+        if cache_df is not None:
+            # If cache has enough data, return it
+            if len(cache_df) >= limit:
+                return cache_df.iloc[-limit:]
+            return cache_df
+
+        # Fallback to REST if cache is empty
         retries = 3
         delay = 1 # seconds
         for i in range(retries):
@@ -483,11 +554,23 @@ class ExchangeHandler:
                 return []
 
     def fetch_ticker(self, symbol):
+        # 🎯 Use WebSocket Cache if available
+        if symbol in self.ticker_cache:
+            return {'last': self.ticker_cache[symbol]}
+            
         try:
             return self.public_exchange.fetch_ticker(symbol)
         except Exception as e:
             logger.error(f"Error fetching ticker for {symbol}: {e}")
             return None
+
+    async def close_ws(self):
+        """
+        Safely closes the WebSocket connection.
+        """
+        self.ws_active = False
+        await self.ws_exchange.close()
+        logger.info("🔌 WebSocket: Connection closed.")
 
     def update_position_metadata(self, symbol, updates):
         """

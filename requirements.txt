@@ -1,4 +1,5 @@
 ccxt
+ccxtpro
 pandas
 numpy
 pandas-ta

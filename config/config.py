@@ -58,8 +58,9 @@ class Config:
     LIVE_SLIPPAGE_FACTOR = 0.0010    # 0.10% per trade (More realistic for Live)
     
     # API Rate Limiting (Practical Fix for 80+ symbols)
-    SCAN_INTERVAL = 120    # Seconds between full market scans (Increase to 120s for safety)
+    SCAN_INTERVAL = 120    # Seconds between full market scans
     SYMBOL_DELAY = 1.0     # Delay in seconds between each symbol scan
+    USE_WEBSOCKET = True   # Enable Real-time data streaming
     
     # Notifications
     DISCORD_WEBHOOK_URL = os.getenv('DISCORD_WEBHOOK_URL')
