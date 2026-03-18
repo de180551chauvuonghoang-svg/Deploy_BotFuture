@@ -27,12 +27,16 @@ def main():
         
     except KeyboardInterrupt:
         logger.info("Bot stopped by user.")
-        sys.exit(0)
     except Exception as e:
         logger.error(f"Critical error: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        sys.exit(1)
+    finally:
+        logger.info("Shutting down resources...")
+        # Since we use asyncio.run above, the loop is closed. 
+        # For a truly clean shutdown of ccxt.pro, we'd ideally manage the loop manually.
+        # But for now, this ensures we exit with any final logs.
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()

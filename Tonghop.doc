@@ -45,3 +45,30 @@ Bot được trang bị "bộ não" AI gồm các thành phần chính:
 * Dashboard Streamlit: Hiển thị biểu đồ thời gian thực, thông số AI và PnL chi tiết.
 * 📊 Hệ thống Báo cáo Tài chính: Đã tối ưu hóa việc ghi nhận lịch sử giao dịch (Trade History). Hỗ trợ tách biệt lợi nhuận đã thực hiện (Realized PnL) từ các đợt chốt lời từng phần (TP1, TP2, TP3). Cho phép xuất báo cáo Excel chuyên nghiệp bất cứ lúc nào.
 * Discord Notifications: Thông báo chi tiết mọi hành động của Bot từ lúc phân tích tiềm năng đến khi tất toán hoàn toàn.
+
+
+# ===== STOP ALL & START CLEAN =====
+cd /home/bottradefuture
+
+# 1. Kill tất cả bot cũ (Docker + Python)
+docker stop $(docker ps -q) 2>/dev/null || true
+pkill -9 -f "python main.py" 2>/dev/null || true
+pkill -9 -f "streamlit" 2>/dev/null || true
+sleep 3
+
+# 2. Xác nhận sạch
+echo "=== Processes After Kill ==="
+ps aux | grep -E "main.py|streamlit" | grep -v grep || echo "✅ No old bots running"
+
+# 3. Khởi động DUY NHẤT 1 Bot + Dashboard
+nohup /home/bottradefuture/venv/bin/python main.py > /home/bottradefuture/bot.log 2>&1 &
+BOT_PID=$!
+nohup /home/bottradefuture/venv/bin/python -m streamlit run dashboard/app.py --server.port 8501 > /home/bottradefuture/dashboard.log 2>&1 &
+DASH_PID=$!
+
+echo "✅ Bot PID: $BOT_PID"
+echo "✅ Dashboard PID: $DASH_PID"
+
+# 4. Confirm sau 10s
+sleep 10
+ps aux | grep -E "main.py|streamlit" | grep -v grep

@@ -58,6 +58,8 @@ class TradingEngine:
             equity = self.exchange.get_balance()
             # Optimized: Fetch all positions and open orders once
             all_active_positions = self.exchange.fetch_positions(Config.TRADING_PAIRS)
+            # 🔍 DEBUG: Log what Binance returns so we can diagnose position sync
+            logger.info(f"🔍 Positions from Binance ({len(all_active_positions)}): {[p.get('symbol') for p in all_active_positions]}")
             all_open_orders = self.exchange.fetch_open_orders()
             
             total_margin = sum(float(p.get('initialMargin', 0)) for p in all_active_positions)
@@ -106,7 +108,7 @@ class TradingEngine:
                 
                 # 🛡️ RATE LIMIT PROTECTION: Add delay between symbols
                 if Config.SYMBOL_DELAY > 0:
-                    time.sleep(Config.SYMBOL_DELAY)
+                    await asyncio.sleep(Config.SYMBOL_DELAY)
             
             # 3. Save shared state for Dashboard sync
             self._save_scan_state(scan_results, {
@@ -572,8 +574,8 @@ class TradingEngine:
         symbols = Config.TRADING_PAIRS
         tasks = [
             asyncio.create_task(self.exchange.watch_ohlcv_all(symbols, timeframe='15m')),
-            asyncio.create_task(self.exchange.watch_ohlcv_all(symbols, timeframe='1h')),
-            asyncio.create_task(self.exchange.watch_ohlcv_all(symbols, timeframe='4h')),
+            # 🛡️ Limit Protection: Only watch the lowest TF via WS. 
+            # 1h and 4h will fallback to optimized REST during run_cycle.
             asyncio.create_task(self.exchange.watch_tickers(symbols))
         ]
         

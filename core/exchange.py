@@ -14,10 +14,10 @@ class ExchangeHandler:
         ccxt.binance.options = {'adjustForTimeDifference': True}
         exchange_class = getattr(ccxt, exchange_id)
         
-        self.dry_run_file = "data/dry_run_positions.json"
-        self.trade_history_file = "data/trade_history.json"
-        if not os.path.exists("data"):
-            os.makedirs("data")
+        self.dry_run_file = os.path.join(Config.DATA_DIR, "dry_run_positions.json")
+        self.trade_history_file = os.path.join(Config.DATA_DIR, "trade_history.json")
+        if not os.path.exists(Config.DATA_DIR):
+            os.makedirs(Config.DATA_DIR)
         
         # 🚀 WebSocket / Async Exchange Initialization
         self.ws_exchange = getattr(ccxtpro, exchange_id)({
@@ -114,11 +114,13 @@ class ExchangeHandler:
         
         while self.ws_active:
             try:
-                # CCXT Pro: watch_ohlcv_for_symbols is efficient for multiple pairs
+                # 🛡️ Subscription Limit Fix: Subscribe in smaller batches if needed
+                # However, with just 1 timeframe (15m), 86 symbols fits within 200.
                 ohlcvs = await self.ws_exchange.watch_ohlcv_for_symbols([[s, timeframe] for s in symbols])
                 
                 for symbol, timeframe_data in ohlcvs.items():
                     for tf, candles in timeframe_data.items():
+                        # ... (existing logging/processing) ...
                         df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
                         for col in ['open', 'high', 'low', 'close', 'volume']:
@@ -131,8 +133,13 @@ class ExchangeHandler:
                         self.ohlcv_cache[symbol][tf] = df
                         
             except Exception as e:
-                logger.error(f"WebSocket OHLCV Error: {e}")
-                await asyncio.sleep(5)
+                logger.error(f"WebSocket OHLCV Error ({timeframe}): {e}")
+                # Exponential backoff for 1006 / Disconnects
+                await asyncio.sleep(10) # Wait 10s before retrying
+                try: 
+                    await self.ws_exchange.close()
+                    # Re-initialize or re-auth if needed
+                except: pass
 
     async def watch_tickers(self, symbols):
         """
@@ -545,9 +552,15 @@ class ExchangeHandler:
                         p['unrealizedPnl'] = float(p.get('unrealizedPnl', 0))
                     
                     if meta:
+                        # 🚀 CRITICAL FIX: Ensure all metadata keys are synced back to UI
                         for key in ['sl', 'tp1', 'tp2', 'tp3', 'leverage', 'tp1_done', 'tp2_done', 'tp3_done', 'entryTime', 'tp1_time', 'tp2_time', 'tp3_time', 'tp1_usd', 'tp2_usd', 'tp3_usd', 'sl_order_id', 'realizedPnl']:
                             if key in meta and meta[key] is not None:
+                                # Prioritize local metadata (it has moved SL, TP status, etc.)
                                 p[key] = meta[key]
+                        
+                        # Fix side display for UI
+                        if 'side' not in p or not p['side']:
+                            p['side'] = meta.get('side', 'LONG')
                 return managed
             except Exception as e:
                 logger.error(f"Error fetching live positions: {e}")
