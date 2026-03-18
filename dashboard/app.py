@@ -89,6 +89,25 @@ st.markdown("""
     /* Scrollbar Styling */
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-thumb { background: #f0b90b; border-radius: 10px; }
+
+    /* 📟 Terminal UI Implementation */
+    .terminal-container {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+        padding: 10px;
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        color: #e6edf3;
+        height: 400px;
+        overflow-y: scroll;
+        display: flex;
+        flex-direction: column-reverse; /* Latest at bottom, but this is one trick. Let's use simple logic though */
+    }
+    .terminal-line {
+        font-size: 13px;
+        margin-bottom: 2px;
+        white-space: pre-wrap;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -647,14 +666,51 @@ with tab2:
         """)
 
 # 6. Logs
-@st.fragment(run_every=15)
+@st.fragment(run_every=5)
 def show_logs():
-    st.header("📜 System Matrix (Logs)")
+    st.header("📜 System Matrix (Terminal)")
     if os.path.exists(Config.LOG_FILE):
         with open(Config.LOG_FILE, 'r', encoding='utf-8') as f:
-            lines = f.readlines()[-20:]
-            # Reverse for latest on top
-            log_text = "".join(reversed(lines))
-            st.code(log_text, language='bash')
+            # Get last 500 lines for much deeper history
+            lines = f.readlines()[-500:]
+            
+            # Format logs for terminal look
+            log_content = ""
+            for line in lines:
+                line = line.strip()
+                if "INFO" in line:
+                    color = "#58a6ff"
+                elif "WARNING" in line:
+                    color = "#d29922"
+                elif "ERROR" in line:
+                    color = "#f85149"
+                elif "SMC" in line:
+                    color = "#7ee787"
+                else:
+                    color = "#e6edf3"
+                
+                # Use a tighter padding and margin for IDA/Terminal feel
+                log_content += f'<div style="color: {color}; font-size: 11px; line-height: 1.2; margin-bottom: 1px; font-family: \'Consolas\', monospace;">{line}</div>'
+
+            # Wrap in scrollable div - Height increased to 800px
+            terminal_html = f"""
+            <div style="
+                background-color: #0d1117; 
+                border: 2px solid #30363d; 
+                border-radius: 8px; 
+                padding: 12px; 
+                height: 800px; 
+                overflow-y: auto; 
+                font-family: 'Consolas', monospace; 
+                box-shadow: inset 0 0 15px rgba(0,0,0,0.7);
+                display: flex;
+                flex-direction: column-reverse;
+            ">
+                <div style="display: flex; flex-direction: column;">
+                    {log_content}
+                </div>
+            </div>
+            """
+            st.markdown(terminal_html, unsafe_allow_html=True)
 
 show_logs()

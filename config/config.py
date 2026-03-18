@@ -22,7 +22,7 @@ class Config:
     POSITION_SIZE_PCT = float(os.getenv('POSITION_SIZE_PERCENT', 2.0)) / 100
     
     # Professional SMC Management (Hybrid Sniper Optimization)
-    MIN_SCORE_THRESHOLD = 8.5
+    MIN_SCORE_THRESHOLD = 8.0
     BASE_RISK_PCT = 0.018000000000000002
     MAX_RISK_PCT = 0.02       # Max 2.0% risk for A++ setups
     
@@ -34,6 +34,11 @@ class Config:
     # AI System
     AI_CONFIDENCE_THRESHOLD = 0.80  # Only trade if AI is 80% confident
     USE_AI_DYNAMIC_TP = True        # Scale TP targets based on AI confidence
+    
+    # AI Dynamic Entry Optimizer (NEW)
+    USE_AI_DYNAMIC_ENTRY = True     # Enable AI-driven dynamic limit entry pricing
+    MAX_ENTRY_DISTANCE_PCT = 0.03   # Max 3% gap allowed between entry price and current market price
+    ENTRY_AGGRESSIVENESS = 0.6      # 0.0 = enter at OB midpoint (safe), 1.0 = enter at market price (aggressive)
     
     # AI Sentiment Analysis (Phase 2)
     CRYPTOPANIC_API_KEY = os.getenv('CRYPTOPANIC_API_KEY', '') # Get from cryptopanic.com/developers/api/

@@ -257,7 +257,18 @@ class ExchangeHandler:
                         'tp2': kwargs.get('tp2'),
                         'tp3': kwargs.get('tp3'),
                         'leverage': str(Config.LEVERAGE),
-                        'entryTime': pd.Timestamp.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+                        'entryTime': pd.Timestamp.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                        'tp1_done': False,
+                        'tp2_done': False,
+                        'tp3_done': False,
+                        'tp1_time': "",
+                        'tp2_time': "",
+                        'tp3_time': "",
+                        'tp1_usd': 0,
+                        'tp2_usd': 0,
+                        'tp3_usd': 0,
+                        'realizedPnl': 0.0,
+                        'sl_order_id': None
                     }
                     # Filter out None values
                     meta = {k: v for k, v in meta.items() if v is not None}
@@ -420,18 +431,17 @@ class ExchangeHandler:
                     # Use exact fields from Binance info for perfect sync
                     if 'info' in p:
                         # 🎯 DIRECT SYNC: Use 'unrealizedProfit' from Binance info
+                        # Binance info usually provides unrealizedProfit in USDT
                         p['unrealizedPnl'] = float(p['info'].get('unrealizedProfit', p.get('unrealizedPnl', 0)))
                         p['markPrice'] = float(p['info'].get('markPrice', p.get('markPrice', 0)))
                         p['entryPrice'] = float(p['info'].get('entryPrice', p.get('entryPrice', 0)))
                         
-                        # Use positionInitialMargin or isolatedWallet for margin
-                        p['initialMargin'] = float(p['info'].get('isolatedWallet', 0))
-                        if p['initialMargin'] == 0:
-                            p['initialMargin'] = float(p['info'].get('positionInitialMargin', 0))
+                        # Fix ROI calculation to match Binance (PnL / Margin)
+                        p_margin = float(p['info'].get('isolatedWallet', 0))
+                        if p_margin == 0:
+                            p_margin = float(p['info'].get('positionInitialMargin', 0))
                         
-                        if float(p['initialMargin']) == 0:
-                            # Final fallback calculation
-                            p['initialMargin'] = abs(float(p['info'].get('positionAmt', 0)) * float(p['info'].get('entryPrice', 0))) / float(p.get('leverage', 10))
+                        p['initialMargin'] = p_margin
                     else:
                         p['unrealizedPnl'] = float(p.get('unrealizedPnl', 0))
                     

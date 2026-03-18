@@ -90,12 +90,28 @@ class SMCStrategy:
                 notify_potential_signal(symbol, bias, score, f"Prime Setup - Very close to entry trigger (Score {Config.MIN_SCORE_THRESHOLD})")
             return {"signal": "NONE", "reason": f"Quality score {score:.1f} too low (Min: {Config.MIN_SCORE_THRESHOLD})", "confluences": confluences}
 
-        # 6. Risk Calculation
-        # ENTRY OPTIMIZATION: Enter at 50% Equilibrium of the OB for higher R/R and Win Rate
-        if ob_hit:
-            entry_px = (ob_hit['top'] + ob_hit['bottom']) / 2
+        # 6. Entry Price Optimization (AI Dynamic Entry)
+        ob_mid = (ob_hit['top'] + ob_hit['bottom']) / 2 if ob_hit else curr_px
+        
+        if Config.USE_AI_DYNAMIC_ENTRY:
+             # Scale aggressiveness based on AI confidence (0.8 to 1.0)
+             # Higher confidence = push entry closer to market price to ensure fill
+             dynamic_agg = Config.ENTRY_AGGRESSIVENESS * ((ai_confidence - 0.7) / 0.3)
+             dynamic_agg = max(0.1, min(0.9, dynamic_agg))
+             
+             # Calculate weighted entry: (1-agg)*OB_Mid + (agg)*Current_Price
+             entry_px = (ob_mid * (1 - dynamic_agg)) + (curr_px * dynamic_agg)
+             
+             # Safeguard: Ensure entry is still within or very near the OB/FVG zone
+             if ob_hit:
+                 entry_px = max(ob_hit['bottom'], min(ob_hit['top'], entry_px))
         else:
-            entry_px = curr_px # Fallback for FVG
+             entry_px = ob_mid
+        
+        # 6.2 Distance Filter: Skip if price is already too far gone (Market Chase Prevention)
+        dist_to_market = abs(entry_px - curr_px) / curr_px
+        if dist_to_market > Config.MAX_ENTRY_DISTANCE_PCT:
+             return {"signal": "NONE", "reason": f"Market too far ({dist_to_market:.1%}) from ideal SMC zone", "confluences": confluences}
             
         # 6. AI Confidence Filter (NEW - Moved up for Dynamic TP)
         ai_confidence = 1.0

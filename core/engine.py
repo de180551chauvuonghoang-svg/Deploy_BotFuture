@@ -261,6 +261,9 @@ class TradingEngine:
                     p_info['sl_order_id'] = sl_order_id
                     
                     self.exchange.update_position_metadata(symbol, {'sl': new_sl, 'sl_order_id': sl_order_id})
+                    
+                    from utils.notifications import notify_sl_updated
+                    notify_sl_updated(symbol, old_sl, new_sl, "Dynamic ATR Trailing")
             
             # A. STOP LOSS CHECK
             # We still keep the soft check as a fallback (in case exchange order failed or for dry run simulation)
@@ -271,7 +274,7 @@ class TradingEngine:
                 return None 
 
             # B. PARTIAL TP1 (33%)
-            if not p_info.get('tp1_done'):
+            if not p_info.get('tp1_done') and p_info.get('tp1', 0) > 0:
                 is_tp1 = (side == 'LONG' and cur_price >= p_info['tp1']) or \
                          (side == 'SHORT' and cur_price <= p_info['tp1'])
                 if is_tp1:
@@ -323,12 +326,13 @@ class TradingEngine:
                     })
                     
                     logger.info(f"SMC: Moved SL to Hard Breakeven ({new_sl:.4f})")
-                    from utils.notifications import notify_trade_closed
-                    notify_trade_closed(symbol, 0, f"TP1 Reached for {symbol} at {now_str} (+{tp1_usd:.2f} USDT) - HARD BE ACTIVE")
+                    from utils.notifications import notify_trade_closed, notify_sl_updated
+                    notify_trade_closed(symbol, round(tp1_usd, 2), f"TP1 Hit for {symbol} at {now_str}")
+                    notify_sl_updated(symbol, "Initial SL", new_sl, "Strategy Update: Hard BE on TP1")
                     return None
 
             # C. PARTIAL TP2 (33%)
-            if p_info.get('tp1_done') and not p_info.get('tp2_done'):
+            if p_info.get('tp1_done') and not p_info.get('tp2_done') and p_info.get('tp2', 0) > 0:
                 is_tp2 = (side == 'LONG' and cur_price >= p_info['tp2']) or \
                          (side == 'SHORT' and cur_price <= p_info['tp2'])
                 if is_tp2:
@@ -375,12 +379,13 @@ class TradingEngine:
                     })
                     
                     logger.info(f"SMC: Locked Profit at TP1 ({new_sl:.4f})")
-                    from utils.notifications import notify_trade_closed
-                    notify_trade_closed(symbol, 0, f"TP2 Partial Closed (50% of rem) at {now_str} (+{tp2_usd:.2f} USDT) - Profit Locked at TP1")
+                    from utils.notifications import notify_trade_closed, notify_sl_updated
+                    notify_trade_closed(symbol, round(tp2_usd, 2), f"TP2 Hit for {symbol} at {now_str}")
+                    notify_sl_updated(symbol, "Hard BE", new_sl, "Strategy Update: Locking Profit at TP1 on TP2 Hit")
                     return None
 
             # D. PARTIAL TP3 (17% - Total Chốt 83%)
-            if p_info.get('tp2_done') and not p_info.get('tp3_done'):
+            if p_info.get('tp2_done') and not p_info.get('tp3_done') and p_info.get('tp3', 0) > 0:
                 is_tp3 = (side == 'LONG' and cur_price >= p_info['tp3']) or \
                          (side == 'SHORT' and cur_price <= p_info['tp3'])
                 if is_tp3:
@@ -428,12 +433,13 @@ class TradingEngine:
                     })
                     
                     logger.info(f"SMC: Moonshot Activated! SL at TP2 ({new_sl:.4f})")
-                    from utils.notifications import notify_trade_closed
-                    notify_trade_closed(symbol, 0, f"TP3 Semi-Closed at {now_str} (+{tp3_usd:.2f} USDT) - MOONSHOT RUNNER (17%) ACTIVE 🚀")
+                    from utils.notifications import notify_trade_closed, notify_sl_updated
+                    notify_trade_closed(symbol, round(tp3_usd, 2), f"TP3 Hit for {symbol} at {now_str}")
+                    notify_sl_updated(symbol, "Locked TP1", new_sl, "Strategy Update: Moonshot Lock (TP2 Baseline)")
                     return None
 
             # E. REVERSAL CHECK & AI SHIELD
-            should_exit, exit_reason = self.strategy.check_early_exit(symbol, side_actual, df_15m, df_1h, p_info)
+            should_exit, exit_reason = self.strategy.check_early_exit(symbol, side, df_15m, df_1h, p_info)
             if should_exit:
                 self.close_position(symbol, exit_reason)
                 return None
@@ -499,7 +505,7 @@ class TradingEngine:
             self.active_positions[symbol]['sl_order_id'] = sl_order_id
             self.exchange.update_position_metadata(symbol, {'sl_order_id': sl_order_id})
             
-            notify_trade_opened(symbol, side_cmd, price, amount, sl, tp1)
+            notify_trade_opened(symbol, side_cmd, price, amount, sl, tp1, tp2, tp3)
             logger.info("📡 Đã gởi thông báo tới Discord.")
 
     def close_position(self, symbol, reason):

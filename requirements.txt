@@ -11,3 +11,4 @@ tabulate
 plotly
 joblib
 scikit-learn
+openpyxl

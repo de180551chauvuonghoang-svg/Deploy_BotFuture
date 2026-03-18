@@ -1,19 +1,5 @@
 [
   {
-    "symbol": "ZEC/USDT",
-    "side": "LONG",
-    "entryPrice": "266.62",
-    "contracts": "12.283",
-    "sl": 263.29,
-    "tp1": 269.284,
-    "tp2": 271.948,
-    "tp3": 277.276,
-    "leverage": "10",
-    "entryTime": "2026-03-17T04:49:31.158465Z",
-    "entry": 266.62,
-    "sl_order_id": "1000000026976291"
-  },
-  {
     "symbol": "RENDER/USDT",
     "side": "LONG",
     "entryPrice": "1.861",
@@ -57,5 +43,42 @@
     "entryTime": "2026-03-17T06:11:43.509949Z",
     "entry": 2321.55,
     "sl_order_id": "1000000027186113"
+  },
+  {
+    "symbol": "XRP/USDT",
+    "side": "short",
+    "entryPrice": "1.51",
+    "contracts": 504.8,
+    "leverage": "10",
+    "entryTime": "2026-03-17T14:46:20.280845Z",
+    "tp1_done": true,
+    "tp1_time": "21:21:14",
+    "tp1_usd": -0.6,
+    "realizedPnl": 6.96607500000013,
+    "sl": 0.0,
+    "sl_order_id": null,
+    "tp2_done": true,
+    "tp2_time": "21:43:51",
+    "tp2_usd": 3.33,
+    "tp3_done": true,
+    "tp3_time": "21:46:20",
+    "tp3_usd": 3.63
+  },
+  {
+    "symbol": "TAO/USDT",
+    "side": "short",
+    "entryPrice": "275.34",
+    "contracts": 3.712,
+    "leverage": "10",
+    "entryTime": "2026-03-18T00:25:01.696873Z",
+    "tp1_done": true,
+    "tp1_time": "07:22:45",
+    "tp1_usd": 13.53,
+    "realizedPnl": 26.632040000000067,
+    "sl": 0.0,
+    "sl_order_id": null,
+    "tp2_done": true,
+    "tp2_time": "07:25:01",
+    "tp2_usd": 13.1
   }
 ]

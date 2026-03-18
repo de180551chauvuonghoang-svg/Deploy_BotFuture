@@ -11,5 +11,24 @@
     "exitTime": "2026-03-17T16:02:46.341639",
     "duration": "TP Hit",
     "close_reason": "TP1 Partial Hit"
+  },
+  {
+    "symbol": "ZEC/USDT",
+    "side": "long",
+    "entryPrice": 270.6,
+    "exitPrice": 268.81,
+    "amount": 11.939,
+    "pnl": -6.494868700000179,
+    "roi": -2.0231762259952943,
+    "entryTime": "2026-03-17T04:49:31.158465Z",
+    "exitTime": "2026-03-18T00:24:56.638959",
+    "duration": "0 days 19:35:25.480494",
+    "tp1_time": "16:43:08",
+    "tp2_time": "",
+    "tp3_time": "",
+    "tp1_usd": 14.88,
+    "tp2_usd": 0,
+    "tp3_usd": 0,
+    "close_reason": "Manual/Target"
   }
 ]
