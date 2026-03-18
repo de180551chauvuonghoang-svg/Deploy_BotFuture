@@ -193,7 +193,7 @@ class SMCStrategy:
         # If we are LONG and signal is SHORT (Bias flipped), exit.
         if (side == 'LONG' and struct_15m['bias'] == 'SHORT') or \
            (side == 'SHORT' and struct_15m['bias'] == 'LONG'):
-            return True, f"🛡️ AI Shield: CHoCH Reversal detected on 15m ({struct_15m['reason']})"
+            return True, f"🛡️ AI Shield: CHoCH Reversal detected on 15m ({struct_15m.get('reason', 'Bias Break')})"
 
         # 2. MOMENTUM REVERSAL (V-Top/Bottom) 
         # Check for large counter-trend candle (1.8x ATR) 
