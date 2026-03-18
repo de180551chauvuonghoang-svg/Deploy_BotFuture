@@ -85,7 +85,20 @@ def update_dynamic_exit(curr_px, entry, current_sl, side, atr_val, p_info):
     tp1_hit = p_info.get('tp1_done', False)
     tp2_hit = p_info.get('tp2_done', False)
     tp3_hit = p_info.get('tp3_done', False)
-    
+
+    # 0. PRE-TP1: Basic ATR Trailing (before any TP is hit)
+    # This ensures SL trails price even before TP1, protecting unrealized profits
+    if not tp1_hit and not tp2_hit and not tp3_hit:
+        trail_dist = atr_val * 2.0  # Use 2x ATR as safe trailing distance
+        if side == "LONG":
+            target_sl = curr_px - trail_dist
+            if target_sl > current_sl:  # Only move SL UP, never down
+                current_sl = target_sl
+        else:
+            target_sl = curr_px + trail_dist
+            if target_sl < current_sl:  # Only move SL DOWN for SHORT, never up
+                current_sl = target_sl
+
     # 1. TP1 Hit: Move SL to Hard Breakeven (Exact Entry)
     if tp1_hit and not tp2_hit:
         # 1. Base Security: Always at least Entry (Hard BE)

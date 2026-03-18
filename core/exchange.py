@@ -1,5 +1,7 @@
 import ccxt
+import ccxt.pro as ccxtpro
 import time
+import asyncio
 import pandas as pd
 import json
 import os
@@ -12,12 +14,28 @@ class ExchangeHandler:
         ccxt.binance.options = {'adjustForTimeDifference': True}
         exchange_class = getattr(ccxt, exchange_id)
         
-        self.dry_run_file = "data/dry_run_positions.json"
-        self.trade_history_file = "data/trade_history.json"
-        if not os.path.exists("data"):
-            os.makedirs("data")
+        self.dry_run_file = os.path.join(Config.DATA_DIR, "dry_run_positions.json")
+        self.trade_history_file = os.path.join(Config.DATA_DIR, "trade_history.json")
+        if not os.path.exists(Config.DATA_DIR):
+            os.makedirs(Config.DATA_DIR)
         
-        # Authenticated instance
+        # 🚀 WebSocket / Async Exchange Initialization
+        self.ws_exchange = getattr(ccxtpro, exchange_id)({
+            'apiKey': Config.API_KEY,
+            'secret': Config.API_SECRET,
+            'enableRateLimit': True,
+            'options': {
+                'defaultType': 'future',
+                'adjustForTimeDifference': True,
+            }
+        })
+        
+        # Cache for real-time data
+        self.ohlcv_cache = {} # symbol -> {timeframe: df}
+        self.ticker_cache = {} # symbol -> price
+        self.ws_active = False
+        
+        # Authenticated instance (Synchronous - kept for existing logic stability)
         self.exchange = exchange_class({
             'apiKey': Config.API_KEY,
             'secret': Config.API_SECRET,
@@ -48,6 +66,7 @@ class ExchangeHandler:
             # We use standard mode but surgically hijack URLs just before signing
             self.exchange.set_sandbox_mode(False)
             self.public_exchange.set_sandbox_mode(False)
+            self.ws_exchange.set_sandbox_mode(True) # 🚀 WebSocket Testnet Support
             
             def create_custom_sign(original_sign):
                 def custom_sign(path, api='public', method='GET', params={}, headers=None, body=None):
@@ -86,7 +105,66 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"Error loading market limits: {e}")
 
+    async def watch_ohlcv_all(self, symbols, timeframe='15m'):
+        """
+        Continuous WebSocket loop to watch OHLCV for multiple symbols.
+        """
+        self.ws_active = True
+        logger.info(f"🌐 WebSocket: Starting OHLCV stream for {len(symbols)} symbols ({timeframe})")
+        
+        while self.ws_active:
+            try:
+                # 🛡️ Subscription Limit Fix: Subscribe in smaller batches if needed
+                # However, with just 1 timeframe (15m), 86 symbols fits within 200.
+                ohlcvs = await self.ws_exchange.watch_ohlcv_for_symbols([[s, timeframe] for s in symbols])
+                
+                for symbol, timeframe_data in ohlcvs.items():
+                    for tf, candles in timeframe_data.items():
+                        # ... (existing logging/processing) ...
+                        df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+                        for col in ['open', 'high', 'low', 'close', 'volume']:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                        df.dropna(subset=['close'], inplace=True)
+                        df.set_index('timestamp', inplace=True)
+                        
+                        if symbol not in self.ohlcv_cache:
+                            self.ohlcv_cache[symbol] = {}
+                        self.ohlcv_cache[symbol][tf] = df
+                        
+            except Exception as e:
+                logger.error(f"WebSocket OHLCV Error ({timeframe}): {e}")
+                # Exponential backoff for 1006 / Disconnects
+                await asyncio.sleep(10) # Wait 10s before retrying
+                try: 
+                    await self.ws_exchange.close()
+                    # Re-initialize or re-auth if needed
+                except: pass
+
+    async def watch_tickers(self, symbols):
+        """
+        Continuous WebSocket loop to watch real-time prices (tickers).
+        """
+        logger.info(f"🌐 WebSocket: Starting Ticker stream for {len(symbols)} symbols")
+        while self.ws_active:
+            try:
+                tickers = await self.ws_exchange.watch_tickers(symbols)
+                for symbol, ticker in tickers.items():
+                    self.ticker_cache[symbol] = float(ticker['last'])
+            except Exception as e:
+                logger.error(f"WebSocket Ticker Error: {e}")
+                await asyncio.sleep(5)
+
     def fetch_ohlcv(self, symbol, timeframe='15m', limit=100):
+        # 🎯 High Performance: Use WebSocket Cache if available
+        cache_df = self.ohlcv_cache.get(symbol, {}).get(timeframe)
+        if cache_df is not None:
+            # If cache has enough data, return it
+            if len(cache_df) >= limit:
+                return cache_df.iloc[-limit:]
+            return cache_df
+
+        # Fallback to REST if cache is empty
         retries = 3
         delay = 1 # seconds
         for i in range(retries):
@@ -474,20 +552,38 @@ class ExchangeHandler:
                         p['unrealizedPnl'] = float(p.get('unrealizedPnl', 0))
                     
                     if meta:
+                        # 🚀 CRITICAL FIX: Ensure all metadata keys are synced back to UI
                         for key in ['sl', 'tp1', 'tp2', 'tp3', 'leverage', 'tp1_done', 'tp2_done', 'tp3_done', 'entryTime', 'tp1_time', 'tp2_time', 'tp3_time', 'tp1_usd', 'tp2_usd', 'tp3_usd', 'sl_order_id', 'realizedPnl']:
                             if key in meta and meta[key] is not None:
+                                # Prioritize local metadata (it has moved SL, TP status, etc.)
                                 p[key] = meta[key]
+                        
+                        # Fix side display for UI
+                        if 'side' not in p or not p['side']:
+                            p['side'] = meta.get('side', 'LONG')
                 return managed
             except Exception as e:
                 logger.error(f"Error fetching live positions: {e}")
                 return []
 
     def fetch_ticker(self, symbol):
+        # 🎯 Use WebSocket Cache if available
+        if symbol in self.ticker_cache:
+            return {'last': self.ticker_cache[symbol]}
+            
         try:
             return self.public_exchange.fetch_ticker(symbol)
         except Exception as e:
             logger.error(f"Error fetching ticker for {symbol}: {e}")
             return None
+
+    async def close_ws(self):
+        """
+        Safely closes the WebSocket connection.
+        """
+        self.ws_active = False
+        await self.ws_exchange.close()
+        logger.info("🔌 WebSocket: Connection closed.")
 
     def update_position_metadata(self, symbol, updates):
         """

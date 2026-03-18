@@ -25,8 +25,7 @@ st.set_page_config(page_title="Trading Bot Dashboard", layout="wide", page_icon=
 if 'selected_symbol' not in st.session_state:
     st.session_state.selected_symbol = Config.TRADING_PAIRS[0]
 
-# Initialize Exchange
-@st.cache_resource
+# Initialize Exchange (Removed cache for absolute sync)
 def get_exchange():
     return ExchangeHandler()
 
