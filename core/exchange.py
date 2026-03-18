@@ -78,6 +78,13 @@ class ExchangeHandler:
             self.dry_run = False
         else:
             self.dry_run = False
+        
+        # Load market info for limits (maxQty, precision, etc.)
+        try:
+            self.exchange.load_markets()
+            logger.info("✅ Market limits loaded from Binance.")
+        except Exception as e:
+            logger.error(f"Error loading market limits: {e}")
 
     def fetch_ohlcv(self, symbol, timeframe='15m', limit=100):
         retries = 3
@@ -115,6 +122,27 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"Error fetching balance: {e}")
             return 0
+
+    def get_market_limits(self, symbol):
+        """
+        Retrieves market limits (maxQty, minQty, stepSize) for a specific symbol.
+        """
+        try:
+            if not self.exchange.markets:
+                self.exchange.load_markets()
+            
+            market = self.exchange.market(symbol)
+            limits = market.get('limits', {})
+            amount_limits = limits.get('amount', {})
+            
+            return {
+                'minQty': float(amount_limits.get('min', 0)),
+                'maxQty': float(amount_limits.get('max', 0)),
+                'stepSize': float(market.get('precision', {}).get('amount', 0.0001))
+            }
+        except Exception as e:
+            logger.error(f"Error fetching market limits for {symbol}: {e}")
+            return {'minQty': 0, 'maxQty': 0, 'stepSize': 0.0001}
 
     def set_leverage(self, symbol, leverage):
         if self.dry_run:

@@ -1,7 +1,7 @@
 import pandas as pd
 import pandas_ta as ta
 
-def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score, ai_confidence=1.0):
+def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score, ai_confidence=1.0, max_qty=0):
     """
     Calculates dynamic SL/TP and position size based on SMC zones and AI Analysis.
     """
@@ -43,6 +43,12 @@ def calculate_smart_sl_tp(side, entry, ob, atr_val, account_balance, score, ai_c
     
     if position_size > max_size_by_margin:
         position_size = max_size_by_margin
+
+    # 🎯 NEW: Cap by Exchange Max Quantity Limit
+    if max_qty > 0 and position_size > max_qty:
+        from core.logger import logger
+        logger.warning(f"⚠️ Capping position size by Exchange Max Limit: {position_size:.4f} -> {max_qty:.4f}")
+        position_size = max_qty
 
     # 3. Take Profit (Dynamic Scaling based on AI Win Probability)
     tp1_rr, tp2_rr, tp3_rr = Config.TP1_RR, Config.TP2_RR, Config.TP3_RR

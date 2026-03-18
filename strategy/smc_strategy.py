@@ -152,10 +152,18 @@ class SMCStrategy:
         except Exception as e:
             print(f"⚠️ AI Inference skipped: {e}")
 
-        # 7. Risk Calculation (Now with AI awareness)
+        # 7. Risk Calculation (Now with AI awareness and Market Limits)
         atr_15m_all = ta.atr(df_15m['high'], df_15m['low'], df_15m['close'])
         atr_15m = atr_15m_all.iloc[-1]
-        risk_data = calculate_smart_sl_tp(bias, entry_px, ob_hit, atr_15m, balance, score, ai_confidence)
+        
+        # 🎯 NEW: Fetch Max Qty limit from exchange
+        max_qty = 0
+        try:
+            limits = exchange.get_market_limits(symbol)
+            max_qty = limits.get('maxQty', 0)
+        except: pass
+            
+        risk_data = calculate_smart_sl_tp(bias, entry_px, ob_hit, atr_15m, balance, score, ai_confidence, max_qty)
         
         if not risk_data:
             return {"signal": "NONE", "reason": "Risk distance too large", "confluences": confluences}

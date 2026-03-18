@@ -102,6 +102,10 @@ class TradingEngine:
                 res = self.process_symbol(symbol, equity, can_open_new, symbol_pos, has_order)
                 if res:
                     scan_results.append(res)
+                
+                # 🛡️ RATE LIMIT PROTECTION: Add delay between symbols
+                if Config.SYMBOL_DELAY > 0:
+                    time.sleep(Config.SYMBOL_DELAY)
             
             # 3. Save shared state for Dashboard sync
             self._save_scan_state(scan_results, {
@@ -562,7 +566,7 @@ class TradingEngine:
 
     def start(self):
         logger.info("Professional SMC Bot Active...")
-        logger.info("Cycle Interval: 30 seconds (Optimized for Multi-Symbol Scanning)")
+        logger.info(f"Cycle Interval: {Config.SCAN_INTERVAL} seconds (REST Optimized for High-Symbol Count)")
         while True:
             self.run_cycle()
-            time.sleep(30) # Increased to 30s to avoid Binance rate limits with many symbols
+            time.sleep(Config.SCAN_INTERVAL)
